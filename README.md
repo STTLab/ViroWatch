@@ -4,6 +4,9 @@ ViroWatch is a bioinformatics software pipeline designed to facilitate real-time
 
 > [!IMPORTANT]  
 > This project is currently under active development, no release have been made.
+>
+> In the meantime you can use a command line implementation of the pipeline in [HIV-64148](https://github.com/STTLab/HIV-64148) assembly pipeline.
+
 
 ## Introduction
 
