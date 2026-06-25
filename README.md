@@ -143,14 +143,41 @@ multiqc/                     Aggregated QC report
 
 ## LosAlamos BLAST database setup
 
-The bundled `assets/blast/LosAlamos_db.gz` is a compressed FASTA. Build the BLAST database before use:
+Two assets are bundled in `assets/blast/`:
+
+**Option A — pre-built DB (recommended):** `LosAlamos_db.tar.gz` contains the BLAST index files and taxdb (66 MB). Extract to a persistent location and point `--blast_db` at it:
+
+```bash
+tar -xzf assets/blast/LosAlamos_db.tar.gz -C /path/to/blast_dbs/
+nextflow run . --input samplesheet.csv --blast_db /path/to/blast_dbs/LosAlamos_db
+```
+
+**Option B — rebuild from FASTA:** `LosAlamos_db.gz` is the raw sequence file (20 MB compressed). Use this if you need to rebuild with custom taxid mappings:
 
 ```bash
 gunzip -c assets/blast/LosAlamos_db.gz > LosAlamos_db.fa
-makeblastdb -in LosAlamos_db.fa -dbtype nucl -out LosAlamos_db
+makeblastdb -in LosAlamos_db.fa -dbtype nucl -out LosAlamos_db \
+    -taxid_map sequence_to_taxid.txt -parse_seqids
 ```
 
-Then pass `--blast_db /path/to/LosAlamos_db` when running the pipeline.
+### Database contents
+
+15,471 HIV-1 sequences from the [Los Alamos HIV Sequence Database](https://www.hiv.lanl.gov/), with taxids assigned per subtype:
+
+| Count | TaxID | Subtype |
+|------:|------:|---------|
+| 10,096 | 505185 | HIV-1 M:B |
+| 2,402 | 505186 | HIV-1 M:C |
+| 2,124 | 1345266 | HIV-1 M:CRF01_AE |
+| 232 | 1287874 | HIV-1 M:CRF02_AG |
+| 201 | 505226 | HIV-1 M:D |
+| 183 | 1385609 | HIV-1 M:CRF07_BC |
+| 101 | 505228 | HIV-1 M:G |
+| 115 | 11676 | HIV-1 (root/unclassified) |
+| 14 | 1392219 | HIV-1 M:F2 |
+| 3 | 505184 | HIV-1 M:A |
+
+CRF01_AE (13.7%) is well represented, relevant for Southeast Asian surveillance. Subtype B dominates (65.3%) reflecting the historical composition of the Los Alamos database.
 
 ## Tools
 
