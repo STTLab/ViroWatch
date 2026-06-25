@@ -1,116 +1,165 @@
 # ViroWatch
 
-ViroWatch is a bioinformatics pipeline and graph database blueprint designed to facilitate real-time molecular surveillance of HIV-1 genomes. It is optimized for low-resource settings and can provide rapid and accessible insights into viral transmission dynamics and potential drug resistance.
+ViroWatch is a Nextflow pipeline for HIV-1 genome surveillance from Oxford Nanopore reads. It takes per-sample FASTQ files through quality control, de novo assembly, consensus polishing, drug resistance analysis, and optional BLAST-based subtyping.
 
-> [!IMPORTANT]
-> Use a command line implementation of the pipeline in [HIV-64148](https://github.com/STTLab/HIV-64148) assembly pipeline.
+Designed for low-resource settings — portable, single conda environment, resume-capable.
 
-## Introduction
+## Pipeline overview
 
-ViroWatch aims to enhance the management of genomic sequencing data using graph-based approaches, improving the scalability and flexibility of viral surveillance systems. It is designed to analyze HIV-1 genomes from clinical samples and public databases, integrating molecular and clinical data for comprehensive viral monitoring.
+```
+FASTQ → dedup → filter → NanoStat
+              → minimap2 → qualimap
+              → Flye (de novo assembly)
+              → Racon ×3 (polishing)
+              → Medaka (consensus)
+              → QUAST (assembly QC)
+              → SierraPy (Stanford HIVDB drug resistance)
+              → BLAST vs LosAlamos (optional subtyping)
+              → MultiQC (aggregated QC report)
+```
 
-### Key objectives
+## Requirements
 
-- Integrating molecular surveillance with clinical data and existing virological databases.
-- Developing a scalable and portable system for rapid deployment, even in low-resource settings.
-- ViroWatch enables public health authorities and researchers to:
-  - Track the emergence of drug-resistant HIV-1 strains.
-  - Monitor potential viral transmission clusters.
+- [Nextflow](https://www.nextflow.io/) ≥ 23.10.0
+- Environment manager (pick one)
+  - [Conda](https://docs.conda.io/)
+  - [Mamba](https://mamba.readthedocs.io/) (recommended for environment resolution)
+  - [Micromamba](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html) (light-weight Mamba equivalent)
 
-### Features
+All tools are installed automatically into a single conda environment (`envs/virowatch.yaml`) on first run.
 
-- **Graph-Based Data Management:** Utilizes graph databases for flexible and scalable storage of genomic data.
-- **Compatibility with Multiple Sequencing Platforms:** Supports long-read sequencing technologies (e.g., Oxford Nanopore, PacBio).
-- **Real-Time Surveillance:** Enables rapid analysis and visualization of transmission clusters and genomic diversity.
-- **Portable and Lightweight:** Runs on standard computer systems, making it accessible to labs in low-resource settings.
-- **Data Integration:** Combines clinical data with existing virological and molecular epidemiology datasets.
+## Quick start
 
-## Pipeline
+```bash
+# Test run with bundled data (CRF01_AE reference + test FASTQ)
+nextflow run . -profile test
 
-| ![Figure 1: An illustration of entities relationship pattern for managing bacterial whole genome sequencing data and all relevant information by NosoGraph.](./README/Images/figure_1.png?raw=true "Figure 1")
-|:--
-| *Figure 1:* The sequencing data from Oxford Nanopore (ONT) sequencer will produce either signal file in POD5 format or raw reads FASTQ file based on the settings of the machine, the raw read will subjected to quality control, the assembly process a de novo assembly. The final assembled contigs will be identify with BLASTn to retrieve complete or near complete HIV-1 genome, these genome will be assigned a subtype based on the subtype of the closest reference genome, additionally, the genomes are sent to Stanford HIV drug resistant database for identification of drug resistance mutation which are cross-verify with locally compute variant calling and variant effect prediction. The final clinical genomic report will comprised of a strain composition found within a sample, a list of drug resistant mutation, variants and their significance along with patient’s clinical data such as historical viral load or CD4 count.
+# Standard run
+nextflow run . --input samplesheet.csv --outdir ./results
+
+# With optional LosAlamos BLAST subtyping
+nextflow run . --input samplesheet.csv --blast_db /path/to/LosAlamos_db
+
+# Resume a failed run
+nextflow run . --input samplesheet.csv -resume
+```
+
+## Samplesheet format
+
+Provide a CSV file with `sample_id` and `fastq` columns:
+
+```csv
+sample_id,fastq
+sample_01,/path/to/sample_01.fq.gz
+sample_02,/path/to/sample_02.fq.gz
+```
+
+## Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `--input` | *(required)* | Path to samplesheet CSV |
+| `--outdir` | `./results` | Output directory |
+| `--ref_fa` | `assets/refs/CRF01_AE.fa` | Reference FASTA for mapping QC |
+| `--ref_gff` | `assets/refs/CRF01_AE.gff` | GFF for qualimap/QUAST |
+| `--medaka_model` | `r1041_e82_400bps_sup_v5.2.0` | Medaka model — must match basecalling model |
+| `--blast_db` | `null` (disabled) | Path to pre-built BLAST DB |
+| `--chopper_q` | `10` | Minimum read quality score |
+| `--chopper_minlen` | `2000` | Minimum read length (bp) |
+| `--chopper_maxlen` | `6000` | Maximum read length (bp) |
+
+Bundled references: `CRF01_AE` (default) and `HXB2` — both in `assets/refs/`.
+
+## Output structure
+
+Each sample produces `results/<sample_id>/`:
+
+```
+nanostat/             Read QC stats
+aln.bam               Reference-mapped reads
+qualimap/             Mapping QC
+flye/                 De novo assembly
+racon_iter_*.fa       Polishing intermediates
+medaka_consensus/     Final consensus FASTA
+quast/                Assembly QC vs reference
+sierrapy.json         Stanford HIVDB drug resistance result
+blast/                BLAST results (only if --blast_db provided)
+multiqc/              Aggregated QC report
+```
+
+## LosAlamos BLAST database setup
+
+The bundled `assets/blast/LosAlamos_db.gz` is a compressed FASTA. Build the BLAST database before use:
+
+```bash
+gunzip -c assets/blast/LosAlamos_db.gz > LosAlamos_db.fa
+makeblastdb -in LosAlamos_db.fa -dbtype nucl -out LosAlamos_db
+```
+
+Then pass `--blast_db /path/to/LosAlamos_db` when running the pipeline.
 
 ## Tools
 
-- QC Tools (selectable)
-  - [FiltLong](https://github.com/rrwick/Filtlong) (v0.2.1)
-  - [LongQC](https://github.com/yfukasawa/LongQC) (v1.2.1)
-- Assemblers
-  - [Flye\/MetaFlye](https://github.com/mikolmogorov/Flye) (v2.9.5)
-- Variant caller
-  - [Medaka](https://github.com/nanoporetech/medaka) (v2.2.0) - Variant calling from reads.
-  - [Snippy](https://github.com/tseemann/snippy) (latest) - Variant calling from assembled contigs.
+| Step | Tool | Version |
+|---|---|---|
+| Deduplication | seqkit rmdup | 2.10.0 |
+| Read filtering | chopper | 0.10.0 |
+| Read QC | NanoStat | 1.6.0 |
+| Reference mapping | minimap2 | 2.29 |
+| Mapping QC | qualimap | 2.3 |
+| De novo assembly | Flye (--meta) | 2.9.6 |
+| Polishing | Racon | 1.5.0 |
+| Consensus | Medaka | 2.1.1 |
+| Assembly QC | QUAST | 5.3.0 |
+| Drug resistance | SierraPy | 0.4.3 |
+| Subtyping | BLAST+ | 2.16.0 |
+| Aggregated QC | MultiQC | 1.28 |
 
-## Data Sources
+## Data sources
 
-- HIV-1 sequences from Los Alamos HIV databases.
-- Stanford HIV Drug Resistance Database.
-- Publicly available sequences from NCBI.
+- Drug resistance: [Stanford HIV Drug Resistance Database](https://hivdb.stanford.edu/) (via SierraPy)
+- Subtyping: [Los Alamos HIV Sequence Database](https://www.hiv.lanl.gov/)
 
-## Knowledge graph design
+---
+
+## Knowledge graph (Neo4j)
+
+> **Note:** The graph database component is under active development. Documentation below describes the planned schema.
 
 | ![Figure 2: An illustration of entities relationship pattern for managing bacterial whole genome sequencing data and all relevant information by NosoGraph.](./README/Images/figure_2.png?raw=true "Figure 2")
 |:--
 | *Figure 2:* The structure of the Knowledge Graph for ViroWatch
 
-The structure of the Knowledge Graph developed in the current system is illustrated in Figure 2. It is designed to be divided into three main domains based on interconnected clinical and biological knowledge, linked through defined relationships:
+The Knowledge Graph is structured across three interconnected domains:
 
-1. Clinical terminology domain represents standardized clinical concepts using SNOMED Clinical Terms (Systematized Nomenclature of Medicine—Clinical Terms) as a controlled vocabulary. This domain covers entities such as disorders, clinical findings, health-related situations, and morphologic abnormalities. The use of such standards ensures consistency in patient data recording, enables systematic disease classification, and facilitates interoperability with external clinical databases.
-2. Patient and clinical metadata is used to store patient-related information, including key entities such as patients, specimens, and laboratory test results. These include measurements such as HIV viral load and CD4+ cell counts. This domain captures the clinical context by addressing “who” the patient is, “what” samples were collected, and “what” tests were performed along with their results, forming a critical foundation for downstream analysis.
-3. Microbiology and genomics domain represents biological data and analytical results derived from patient samples. It includes entities such as isolates, organisms, genome assemblies, and genetic variants generated from sequencing pipelines. This domain links molecular-level information with clinical data, enabling integrated analysis of relationships between pathogen genomics and clinical or epidemiological characteristics.
-
-## Usage
-
-This repository provides:
-
-- A conceptual schema defining node labels, relationship types, and data domains
-- Example CSV files for data import
-- Cypher queries demonstrating common operations and analytical use cases
-- Guidance for setting up Neo4j as a working environment
-
-Users can adopt the schema as a starting point, extend it to fit their specific use cases, and integrate it with custom pipelines or applications as needed.
-
-It is important to note that, **NosoGraph is not a database management system (DBMS)** and does not provide a complete software platform for data ingestion, storage, or analysis. Instead, it defines a blueprint outlining structured conceptual model that guides how clinical, microbiological, and genomic data should be organized and linked within a graph database. The implementation of the underlying infrastructure (e.g., data pipelines, deployment environment, access control, and application interfaces) is intentionally out of scope of this repository. Users are expected to adapt the schema to their own systems and integrate it with existing workflows or tools.
-
-We recommend using Neo4j as the platform offers an intuitive desktop interface, providing ease-of-use for general users and a mature ecosystem for graph-based development.
-
-> [info]
-> **Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Neo4j, Inc. “Neo4j” and related trademarks are the property of Neo4j, Inc. All references to Neo4j within this repository are for informational and implementation purposes only.
+1. **Clinical terminology** — standardized concepts using SNOMED CT (disorders, clinical findings, morphologic abnormalities).
+2. **Patient and clinical metadata** — patient records, specimens, and lab results (viral load, CD4+ counts).
+3. **Microbiology and genomics** — isolates, assemblies, and genetic variants linked to clinical data.
 
 ### Quick Start (Neo4j Desktop)
 
 #### 1. Install Neo4j Desktop
 
-Download and install Neo4j Desktop from:
-
-[https://neo4j.com/download/](https://neo4j.com/download/)
-
-Follow instructions to download, install, and launch the application.
+Download from [https://neo4j.com/download/](https://neo4j.com/download/) and follow installation instructions.
 
 #### 2. Create a New Database
 
 1. Choose "Local instances" on the sidebar menu
-2. Click "Create instance"
-3. Fill instance details according to instructions.
-4. Set a database name (e.g., nosograph-db)
-5. Set a password and store it securely
-6. Click “Create”.
-7. Connect to the instance through "Query" or "Explore" menu
+2. Click "Create instance" and fill in instance details
+3. Set a database name (e.g., `virowatch-db`) and a password
+4. Click "Create" and connect via the "Query" or "Explore" menu
 
-#### 3. Prepare Data Import
+#### 3. Import Data
 
-To import data into Neo4j instance, if using CSV files, the file must be put into an import directory within an instance path. The path can be looked up in instances list in the connection screen `Path: C:\Users\<username>\.Neo4jDesktop2\Data\dbmss\dbms-<instance-id>\import`
+Place CSV files in the Neo4j import directory (`Path: C:\Users\<username>\.Neo4jDesktop2\Data\dbmss\dbms-<instance-id>\import`) then load with Cypher:
 
-```Cyppher
+```cypher
 LOAD CSV WITH HEADERS FROM 'file:///<file_name>.csv' AS row
 RETURN row;
 ```
 
 #### 4. Explore the Graph
 
-From Query menu after connected to an instance you may use Neo4j Browser to:
+Use Neo4j Browser to visualize relationships, expand nodes (double-click), and run analytical queries.
 
-- Visualize relationships interactively
-- Expand nodes (double-click)
-- Run example queries from this repository
+> **Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Neo4j, Inc. "Neo4j" and related trademarks are the property of Neo4j, Inc.
