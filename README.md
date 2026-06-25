@@ -15,18 +15,32 @@ FASTQ → dedup → filter → NanoStat
               → QUAST (assembly QC)
               → SierraPy (Stanford HIVDB drug resistance)
               → BLAST vs LosAlamos (optional subtyping)
+              → BLAST vs core_nt (optional; NCBI taxonomy)
               → MultiQC (aggregated QC report)
+              → HTML HIV sequence analysis report (per sample)
 ```
 
 ## Requirements
 
 - [Nextflow](https://www.nextflow.io/) ≥ 23.10.0
-- Environment manager (pick one)
-  - [Conda](https://docs.conda.io/)
-  - [Mamba](https://mamba.readthedocs.io/) (recommended for environment resolution)
-  - [Micromamba](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html) (light-weight Mamba equivalent)
+- [Micromamba](https://mamba.readthedocs.io/en/latest/user_guide/micromamba.html) or [Mamba](https://mamba.readthedocs.io/) (recommended; plain conda is slow on medaka's dependency tree)
 
-All tools are installed automatically into a single conda environment (`envs/virowatch.yaml`) on first run.
+Most tools are installed automatically into `envs/virowatch.yaml` on first run. Medaka runs in a separate isolated environment (`envs/medaka.yaml`) because its PyTorch/CUDA dependencies conflict with the main environment.
+
+### Hardware note — AVX2
+
+Newer builds of Flye (≥ 2.9.6) and Racon (1.5.0) are compiled with AVX2 instructions and will crash with `Illegal instruction (SIGILL)` on CPUs that pre-date Haswell (Intel Xeon E5 v1/v2, some Broadwell Xeons). The environment file already pins `flye=2.9.5` to avoid this. Racon 1.5.0 has no non-AVX2 conda build; a workaround is to manually replace the binary after environment creation:
+
+```bash
+# Check whether your CPU supports AVX2
+grep -c avx2 /proc/cpuinfo     # 0 = no AVX2; >0 = fine, no workaround needed
+
+# Workaround: replace racon binary with an AVX2-free build (Linux x86_64)
+wget https://conda.anaconda.org/bioconda/linux-64/racon-1.4.20-hd03093a_2.tar.bz2
+tar xjf racon-1.4.20-hd03093a_2.tar.bz2 -C $(conda env list | awk '/virowatch/{print $NF}') bin/racon bin/rampler
+```
+
+On AVX2-capable hardware (Haswell and later) no action is required — remove the `flye=2.9.5` pin in `envs/virowatch.yaml` to get the latest build.
 
 ## Quick start
 
@@ -39,6 +53,12 @@ nextflow run . --input samplesheet.csv --outdir ./results
 
 # With optional LosAlamos BLAST subtyping
 nextflow run . --input samplesheet.csv --blast_db /path/to/LosAlamos_db
+
+# With both BLAST DBs and clinical data
+nextflow run . --input samplesheet.csv \
+  --blast_db /path/to/LosAlamos_db \
+  --core_nt_db /path/to/core_nt/core_nt \
+  --vl_csv vl.csv --cd4_csv cd4.csv
 
 # Resume a failed run
 nextflow run . --input samplesheet.csv -resume
@@ -63,28 +83,62 @@ sample_02,/path/to/sample_02.fq.gz
 | `--ref_fa` | `assets/refs/CRF01_AE.fa` | Reference FASTA for mapping QC |
 | `--ref_gff` | `assets/refs/CRF01_AE.gff` | GFF for qualimap/QUAST |
 | `--medaka_model` | `r1041_e82_400bps_sup_v5.2.0` | Medaka model — must match basecalling model |
-| `--blast_db` | `null` (disabled) | Path to pre-built BLAST DB |
+| `--blast_db` | `null` | Path to pre-built LosAlamos BLAST DB (disabled if null) |
+| `--core_nt_db` | `null` | Path to NCBI core_nt DB; requires `BLASTDB` env var pointing to taxdb |
+| `--vl_csv` | `null` | Viral load history CSV (`sample_id`, `date`, `vl` columns) |
+| `--cd4_csv` | `null` | CD4 count history CSV (`sample_id`, `date`, `cd4_pct`, `cd4_count` columns) |
 | `--chopper_q` | `10` | Minimum read quality score |
 | `--chopper_minlen` | `2000` | Minimum read length (bp) |
 | `--chopper_maxlen` | `6000` | Maximum read length (bp) |
 
 Bundled references: `CRF01_AE` (default) and `HXB2` — both in `assets/refs/`.
 
+### Configuration layout
+
+| File | Committed | Purpose |
+|---|---|---|
+| `nextflow.config` | yes | Pipeline defaults and profile stubs |
+| `conf/base.config` | yes | Process resource caps and retry strategy |
+| `conf/test.config` | yes | Test profile — bundled data, relaxed filters |
+| `conf/site.config.template` | yes | Template for site-specific settings |
+| `conf/site.config` | **no** (gitignored) | Filled-in site config — BLAST paths, workDir, etc. |
+
+Machine-specific settings (BLAST DB paths, `workDir`, executor) go in `conf/site.config`, which is gitignored. Copy the template and fill it in:
+
+```bash
+cp conf/site.config.template conf/site.config
+# edit conf/site.config, then:
+nextflow run . --input samplesheet.csv -c conf/site.config
+```
+
+Alternatively, add site params to `~/.nextflow/config` — Nextflow auto-loads it on every run with no `-c` flag needed:
+
+```groovy
+// ~/.nextflow/config
+params {
+    blast_db   = '/mnt/central/BLAST/LosAlamos_db'
+    core_nt_db = '/mnt/central/BLAST/core_nt/core_nt'
+}
+workDir = '/scratch/nextflow_work'
+```
+
 ## Output structure
 
 Each sample produces `results/<sample_id>/`:
 
 ```
-nanostat/             Read QC stats
-aln.bam               Reference-mapped reads
-qualimap/             Mapping QC
-flye/                 De novo assembly
-racon_iter_*.fa       Polishing intermediates
-medaka_consensus/     Final consensus FASTA
-quast/                Assembly QC vs reference
-sierrapy.json         Stanford HIVDB drug resistance result
-blast/                BLAST results (only if --blast_db provided)
-multiqc/              Aggregated QC report
+nanostat/                    Read QC stats
+aln.bam                      Reference-mapped reads
+qualimap/                    Mapping QC
+flye/                        De novo assembly
+racon_iter_*.fa              Polishing intermediates
+medaka_consensus/            Final consensus FASTA
+quast/                       Assembly QC vs reference
+sierrapy.json                Stanford HIVDB drug resistance result
+blast/los_alamos.blast.json  LosAlamos BLAST results (if --blast_db)
+blast/core_nt.blast.json     core_nt BLAST results (if --core_nt_db)
+multiqc/                     Aggregated QC report
+<sample_id>_report.html      Per-sample HIV sequence analysis report
 ```
 
 ## LosAlamos BLAST database setup
@@ -105,15 +159,19 @@ Then pass `--blast_db /path/to/LosAlamos_db` when running the pipeline.
 | Deduplication | seqkit rmdup | 2.10.0 |
 | Read filtering | chopper | 0.10.0 |
 | Read QC | NanoStat | 1.6.0 |
-| Reference mapping | minimap2 | 2.29 |
+| Reference mapping | minimap2 | latest |
 | Mapping QC | qualimap | 2.3 |
-| De novo assembly | Flye (--meta) | 2.9.6 |
-| Polishing | Racon | 1.5.0 |
-| Consensus | Medaka | 2.1.1 |
+| De novo assembly | Flye (--meta) | 2.9.5 † |
+| Polishing | Racon | 1.5.0 ‡ |
+| Consensus | Medaka | 2.1.1 (separate env) |
 | Assembly QC | QUAST | 5.3.0 |
 | Drug resistance | SierraPy | 0.4.3 |
 | Subtyping | BLAST+ | 2.16.0 |
 | Aggregated QC | MultiQC | 1.28 |
+| Report | Jinja2 / Python | 3.1.4 / 3.x |
+
+† Pinned at 2.9.5 — the last build without AVX2; safe to upgrade on AVX2-capable hardware.  
+‡ bioconda 1.5.0 binary requires AVX2; see [Hardware note](#hardware-note--avx2) for the workaround on older CPUs.
 
 ## Data sources
 
