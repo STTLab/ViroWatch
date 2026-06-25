@@ -1,0 +1,91 @@
+{% macro genome_image(genes, backbone_segments, genome_length, show_arrow=False) %}
+<div class="col-md-6 col-sm-12 col-xs-12" data-object-name="genomeImage">
+
+<svg width="300" height="100" xmlns="http://www.w3.org/2000/svg">
+
+<g transform="translate(10,10)">
+
+<!-- genome backbone -->
+<rect
+    x="0.5"
+    y="9.5"
+    width="280"
+    height="11"
+    fill="lightgray"
+    stroke="black"/>
+
+{% for s in backbone_segments %}
+
+<rect
+    x="{{ s.x }}"
+    y="9.5"
+    width="{{ s.width }}"
+    height="11"
+    fill="green"
+    opacity="0.8"/>
+
+{% set step = 12 %}
+{% set count = (s.width // step)|int %}
+{% set start = s.x + (s.width - count * step) / 2 %}
+
+{% for i in range(count) %}
+    {% set cx = start + i * step %}
+
+    {% if show_arrow %}
+        {% if s.strand == "+" %}
+        <polygon
+            points="
+                {{ cx }},{{ 9.5 + 2 }}
+                {{ cx }},{{ 9.5 + 9 }}
+                {{ cx + 6 }},{{ 9.5 + 5.5 }}"
+            fill="white"/>
+        {% else %}
+        <polygon
+            points="
+                {{ cx + 6 }},{{ 9.5 + 2 }}
+                {{ cx + 6 }},{{ 9.5 + 9 }}
+                {{ cx }},{{ 9.5 + 5.5 }}"
+            fill="white"/>
+        {% endif %}
+    {% endif %}
+{% endfor %}
+{% endfor %}
+
+<text x="0" y="6" font-size="8">1</text>
+<text x="280" y="6" text-anchor="end" font-size="8">{{ genome_length }}</text>
+
+{% for g in genes %}
+<clipPath id="{{ g.id }}">
+    <path d="{{ g.path }}"></path>
+</clipPath>
+{% endfor %}
+
+<!-- genes -->
+{% for g in genes %}
+<path
+    d="{{ g.path }}"
+    fill="lightgray"
+    stroke="black"
+    stroke-width="0.5">
+    <title>{{ g.name }}</title>
+</path>
+{% endfor %}
+
+{% for g in genes %}
+{% for s in g.segments %}
+<rect
+    x="{{ s.x }}"
+    y="{{ s.y }}"
+    width="{{ s.width }}"
+    height="{{ s.height }}"
+    fill="green"
+    clip-path="url(#{{ g.id }})"/>
+{% endfor %}
+{% endfor %}
+
+</g>
+
+</svg>
+
+</div>
+{% endmacro %}

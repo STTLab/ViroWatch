@@ -1,0 +1,82 @@
+{% macro drug_resistance_panel_table(records) -%}
+<table id="drug-resistant-table" class="table table-hover">
+    <thead>
+        <tr>
+            <th>SIR</th>
+            <th colspan="2">Drug</th>
+            <th>Class</th>
+            <th>Susceptibility</th>
+            <th>Level</th>
+            <th>Score</th>
+            {% if records.0.supported_contig %}
+            <th>Supported contig</th>
+            {% endif %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for record in records %}
+        <tr>
+            <td>{{ sir_badge(record.SIR) }}</td>
+            <td>{{ record.drug_abbr }}</td>
+            <td>{{ record.drug_full_name }}</td>
+            <td>{{ record.drug_class }}</td>
+            <td>{{ resistance_pill(record.SIR, record.interpretation) }}</td>
+            <td>{{ record.level }}</td>
+            <td>{{ record.score }}</td>
+            {% if record.supported_contig %}
+            <td>{{ record.supported_contig | join(", ") }}</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{%- endmacro %}
+{% macro message_card(level, header, title, message, text_color='text-white') -%}
+{% if message|length > 300 %}
+  <div class="col-12">
+{% else %}
+  <div class="col-lg col-md col-sm-12 d-flex align-items-stretch">
+{% endif %}
+  <div class="card {{ text_color }} border-{{ level }} mb-3">
+    <div class="card-header bg-{{ level }}">{{ header }}</div>
+    <div class="card-body">
+      {% if title %}
+      <h5 class="text-black">{{ title }}</h5>
+      {% endif %}
+      <p class="card-text text-black">{{ message }}</p>
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro badge(level, message, text_color='text-white') -%}
+<span class="badge bg-{{ level }} {{ text_color }}">{{ message }}</span>
+{%- endmacro %}
+
+{% macro sir_badge(sir) -%}
+    {% if sir=='S' %}
+        {{ badge('primary', sir) }}
+    {% endif %}
+    {% if sir=='I' %}
+        {{ badge('warning', sir, 'text-dark') }}
+    {% endif %}
+    {% if sir=='R' %}
+        {{ badge('danger', sir) }}
+    {% endif %}
+{%- endmacro %}
+
+{% macro pill(level, message, text_color='text-white') -%}
+    <span class="badge rounded-pill bg-{{ level }} {{ text_color }}">{{ message }}</span>
+{%- endmacro %}
+
+{% macro resistance_pill(sir, message) -%}
+    {% if sir=='S' %}
+        {{ pill('primary', message) }}
+    {% endif %}
+    {% if sir=='I' %}
+        {{ pill('warning', message, 'text-dark') }}
+    {% endif %}
+    {% if sir=='R' %}
+        {{ pill('danger', message) }}
+    {% endif %}
+{%- endmacro %}

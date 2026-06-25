@@ -1,0 +1,74 @@
+{% macro blast_table(blast_records, show_all=True) %}
+{% set strand_str_map = {
+  "Plus": "+",
+  "Minus": "-",
+} %}
+<table class="table">
+    <thead>
+        <tr>
+            <th>Accession</th>
+            <th>Subject title</th>
+            <th>Sciname</th>
+            <th>Query coverage (%)</th>
+            <th>Subject coverage (%)</th>
+            <th>% identity</th>
+            <th>Frame</th>
+            <th>Subject range</th>
+            <th>Query range</th>
+            <th>E-value</th>
+            <th>Total bit-score</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for record in blast_records -%}
+            {% set hsps_count = record.hsps_compact | length %}
+            {% if loop.first %}
+                {% set row_id = "blast_main_"+ record.query_name %}
+            {% else %}
+                {% set row_id = "blast_subhits_"+ record.query_name %}
+            {% endif %}
+            {% for item in record.hsps_compact -%}
+                {% if row_id == "blast_main_"+ record.query_name %}
+                <tr id="{{ row_id }}" class="table-primary">
+                {% else %}
+                {% if loop.first and showall %}
+                    <tr id="{{ row_id }}" class="collapse show">
+                {% else %}
+                    <tr id="{{ row_id }}" class="collapse">
+                {% endif %}
+                {% endif %}
+                {% if loop.first %}
+                <td rowspan="{{ hsps_count }}">{{ record.accession }}</td>
+                <td rowspan="{{ hsps_count }}">{{ record.subject_title }}</td>
+                <td rowspan="{{ hsps_count }}">{{ record.sciname }}</td>
+                <td rowspan="{{ hsps_count }}">{{ (record.query_fraction*100) | round(precision=1, method='floor') }}</td>
+                <td rowspan="{{ hsps_count }}">{{ (record.subject_fraction*100) | round(precision=1, method='floor') }}</td>
+                <td rowspan="{{ hsps_count }}">{{ (record.piden*100) | round(precision=1, method='floor') }}</td>
+                {% endif %}
+                <td>{{ loop.index }}</td>
+                <td>{{ item[0][1] }} to {{ item[0][2] }} ({{ strand_str_map[item[0][0]] }})</td>
+                <td>{{ item[1][1] }} to {{ item[1][2] }} ({{ strand_str_map[item[1][0]] }})</td>
+                <td>{{ item[2] }}</td>
+                {% if loop.first %}
+                <td rowspan="{{ hsps_count }}">{{ record.bit_score|round(2) }}</td>
+                {% endif %}
+                </tr>
+            {%- endfor %}
+            {% if loop.first and not showall %}
+            <tr>
+                <td colspan="10"
+                style="cursor:pointer; text-align: center; color:dodgerblue; border-bottom-width: 0px"
+                data-bs-target="#blast_subhits_{{ record.query_name }}"
+                data-bs-toggle="collapse"
+                onclick="this.innerText = (this.innerText === 'Show other hits') ? 'Hide' : 'Show other hits';"
+                >Show other hits</td>
+            </tr>
+            {% endif %}
+        {%- endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{% macro blast_table_from_tsv(blast_records, show_all=True) %}
+
+{% endmacro %}

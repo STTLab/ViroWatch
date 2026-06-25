@@ -1,0 +1,74 @@
+{% macro import_code_block_cdn() %}
+<script src="https://cdn.jsdelivr.net/npm/prismjs/prism.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs/plugins/line-numbers/prism-line-numbers.min.js"></script>
+{% endmacro %}
+{% macro code_copy_btn_script() %}
+<script>
+function copyCode(btn) {
+  const code = btn.parentElement.parentElement.querySelector("code").innerText;
+  navigator.clipboard.writeText(code);
+
+  btn.innerText = "Copied!";
+  setTimeout(() => btn.innerText = "Copy", 1500);
+}
+</script>
+{% endmacro %}
+{% macro sequence_code_block(sequence_id, sequence) %}
+<div class="code-block">
+    <div class="code-header d-flex justify-content-between align-items-center"
+       data-bs-toggle="collapse"
+       data-bs-target="#fastaCode_{{ sequence_id }}"
+       style="cursor:pointer;">
+        <span class="code-lang">FASTA</span>
+        <button class="btn btn-sm btn-outline-light copy-btn" onclick="event.stopPropagation(); copyCode(this)">
+            Copy
+        </button>
+    </div>
+    <div class="collapse" id="fastaCode_{{ sequence_id }}">
+  <pre class="language- col-scroll">
+  <code class="code-lang">
+>{{ sequence_id }}
+{{ sequence }}
+  </code>
+  </pre>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro contig_info_table(data, blast_core_nt_best_match=None, blast_hiv_best_match=None) %}
+<table class='table'>
+  <tbody>
+    <tr>
+      <th scope='row'>Contig id</th>
+      <td>{{ data.contig_id }}</td>
+    </tr>
+    <tr>
+      <th scope='row'>Length (nt)</th>
+      <td>{{ data.length }}</td>
+    </tr>
+    <tr>
+      <th scope='row'>Coverage</th>
+      <td>{{ data.coverage }}</td>
+    </tr>
+    <tr>
+      <th scope='row'>
+        <p style='margin:0px;'>Intracontig copy number</p>
+        <sub>Estimated number of copies of a sequence within a single contig, including tandem repeats or concatamers.</sub>
+      </th>
+      <td>{{ data.intracontig_copy_number }}</td>
+    </tr>
+    {% if blast_core_nt_best_match %}
+    <tr>
+      <th scope='row'>BLAST core_nt best match species</th>
+      <td>{{ blast_core_nt_best_match.sciname }}</td>
+    </tr>
+    {% if blast_core_nt_best_match.taxid == 11676 and blast_hiv_best_match %}
+    <tr>
+      <th scope='row'>HIV Subtype</th>
+      <td>{{ blast_hiv_best_match.sciname }} <br>(% Identity: {{ (blast_hiv_best_match.piden*100) | round(precision=1, method='floor') }})</td>
+    </tr>
+    {% endif %}
+    {% endif %}
+  </tbody>
+</table>
+{% endmacro %}

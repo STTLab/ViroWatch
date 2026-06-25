@@ -1,0 +1,315 @@
+{% from "macros/hiv_genome.jinja2" import genome_image %}
+{% from "macros/sequence_code_block.jinja2" import sequence_code_block, import_code_block_cdn, code_copy_btn_script, contig_info_table %}
+{% from "macros/blast_table.jinja2" import blast_table %}
+{% from "macros/sierrapy.jinja2" import drug_resistance_panel_table %}
+{% from "macros/footer.jinja2" import footer %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bootstrap demo</title>
+    <style>
+        section {
+            margin-top: 2em;
+        }
+        .code-block {
+        background: #ececec54;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 1rem 0;
+        font-size: 16px;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #bdbdbd;
+            padding: 6px 12px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .code-lang {
+            color: #444;
+            font-size: 12px;
+        }
+
+        .copy-btn {
+            font-size: 12px;
+            padding: 2px 8px;
+            color: #444;
+        }
+
+        pre[class*="language-"] {
+            margin: 0;
+            padding: 10px 50px 10px 20px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        sub {
+            color: #212529BF;
+            font-size: 6px !important;
+            font-weight: normal !important;
+            line-height: 1;
+        }
+        .col-scroll {
+            overflow-y: auto;
+            min-height: 0;
+        }
+        pre.col-scroll {
+        max-height: 300px;
+        overflow-y: auto;
+        }
+    </style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  </head>
+  <body>
+
+    <div class="container-sm mt-5">
+        <h1>HIV-64148 Report</h1>
+        <!-- Patient information section -->
+        <section>
+            <h2>Patient information</h2>
+            <div class="row">
+                <div class="col-lg-6 col-md-4 col-sm">
+                    <div class="card" style="width: full;">
+                        <div class="card-body">
+                            <h5 class="card-title">HN: {{ hn }}</h5>
+                            <h6 class="card-subtitle mb-2 text-body-secondary">{{ firstname }} {{ lastname }},  {{ sex }} {{ age }}y</h6>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-5">
+                <!-- Chart.js figures -->
+                <div class="col-lg-6 col-md-6 col-sm-full" style="padding: 12px;">
+                    <div><canvas id="chart_viral_load"></canvas></div>
+                </div>
+                <div class="col-lg-6 col-md-6 col-sm-full" style="padding: 12px;">
+                    <div><canvas id="chart_cd4"></canvas></div>
+                </div>
+            </div>
+        </section>
+        <!-- Sequencing info section -->
+        <section>
+            <h2>Sequencing info</h2>
+
+            Sample ID {{ sequencing_sample_id }}
+        </section>
+        <!-- Assembly result section -->
+        <section>
+            <h2>Analyses</h2>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th scope="col">Analyses</th>
+                        <th scope="col">Tool</th>
+                        <th scope="col">Protocol</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Assembly</td>
+                        <td>MetaFlye</td>
+                        <td>HIV-64148</td>
+                        <td>Done</td>
+                        <td>2026-01-13</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div>
+                <h3>Assembly</h3>
+                <div class="row">
+                    <div class="col-6">                    
+                    <strong>Total contigs: {% set contig_count = assemblies | length %} {{ contig_count }}</strong>
+                        <ul>
+                            {% for contig in assemblies -%}
+                            <li>{{ contig.contig_id }}</li>
+                            {%- endfor %}
+                        </ul>
+                    </div>
+                    <div class="col-6">                    
+                    <figcaption class="blockquote-footer" style="margin-top: 12px;">
+                        Contig names are inherited from the Flye assembler 
+                        and may not appear sequentially (e.g., contig_2, contig_1, contig_4*). 
+                        This is because Flye assigns contig IDs during assembly, and some contigs 
+                        may later be removed during internal depth filtering or repeat-resolution (“resolve”) steps.
+                    </figcaption>
+                    </div>
+                </div>
+            </div>
+    {% for contig in assemblies -%}
+        <div>
+            <h4 class="mt-3">{{ contig.contig_id }}</h4>
+            <hr class="border-bottom border-1 border-light-gray">
+            <div class="row">
+                <div class="col-5" style="height:420px;">
+                    {{ contig_info_table(contig, contig.blast.core_nt.0, contig.blast.los_alamos.0) }}
+                </div>
+                <div class="col-7 col-scroll">
+                    {{ sequence_code_block(contig.contig_id, contig.sequence) }}
+                </div>
+            </div>
+            {% if contig.blast.core_nt and contig.blast.core_nt.0.taxid != 11676 %}
+            <h5>BLAST (Core nt database)</h5>
+            {{ blast_table(contig.blast.core_nt, show_all=False) }}
+            {% elif contig.blast.los_alamos %}
+            <h5>BLAST (Los Alamos curated HIV sequences)</h5>
+                {% if contig.blast.los_alamos.0.image_genes %}
+                    {% set hiv_best_hit_data = contig.blast.los_alamos.0 %}
+                    <h6>Genomic Positions of Contig BLAST Hits on the HIV Genome</h6>
+                    <div class="row">
+                        <div class="col-6 d-flex justify-content-center align-items-center">
+                            <figure class="figure">
+                                {{ genome_image(hiv_best_hit_data.image_genes, hiv_best_hit_data.image_backbone_segments, hiv_best_hit_data.image_genome_length, show_arrow=True) }}
+                            </figure>
+                        </div>
+                        <div class="col-6">
+                            <figcaption class="figure-caption blockquote-footer">
+                            BLAST alignment locations of contigs against curated HIV reference sequences from the Los Alamos HIV database.
+                            Each segment indicates the coordinate range of the best-scoring alignment for a contig, 
+                            reported relative to the best-hit reference sequence {{ hiv_best_hit_data.subject_title }} ({{ hiv_best_hit_data.accession }}).
+                            </figcaption>
+                        </div>
+                    </div>
+                {% endif %}
+            {{ blast_table(contig.blast.los_alamos, show_all=False) }}
+            {% endif %}
+            
+        </div>
+    {%- endfor %}
+    </section>
+    <saction>
+        <h3 class="mt-5">Stanford HIV Drug resistance database analysis</h3>
+        <hr class="border-bottom border-1 border-light-gray">
+        {% if drug_resistance_panel %}
+            <h4>Drug resistance panel</h4>
+            <strong>HIVDR Database version: </strong> HIVDB 10.1
+            <strong>HIVDR Database date: </strong> 2026-01-18
+            {{ drug_resistance_panel_table(drug_resistance_panel) }}
+        {% endif %}
+    </section>
+    </div>
+
+    {{ footer() }}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    {{ import_code_block_cdn() }}
+    {{ code_copy_btn_script() }}
+    {% if viral_load_history %}
+    <script>
+        const ctx_vl = document.getElementById('chart_viral_load');
+        const labels_vl = {{ viral_load_history.timestamp }};
+        const data_vl = {
+        labels: labels_vl,
+        datasets: [{
+            label: 'Viral load (copies/mL)',
+            data: {{ viral_load_history.data }},
+            fill: false,
+            borderColor: 'rgb(75, 192, 192)',
+            tension: 0.1
+        }]
+        };
+        let chart_vl = new Chart(ctx_vl, {
+            type: 'line',
+            data: data_vl,
+            options: {
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'year',
+                            displayFormats: {
+                                day: 'MMMM yyyy'
+                            }
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Viral load (copies/mL)'
+                        }
+                    }
+                }
+            }
+        })
+    </script>
+    {% endif %}
+    {% if cd4_count_history %}
+    <script>
+        const ctx_cd4 = document.getElementById('chart_cd4');
+        const labels_cd4 = {{ cd4_count_history.timestamp }};
+        const data_cd4 = {
+        labels: labels_cd4,
+        datasets: [
+            {
+                type: 'bar',
+                label: 'CD4 percent (%)',
+                data: {{ cd4_count_history.percent.data }},
+                yAxisID: 'y',
+                fill: false,
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1
+            },
+            {
+                type: 'line',
+                label: 'CD4 count (cell/mm^3)',
+                data: {{ cd4_count_history.count.data }},
+                yAxisID: 'y1',
+                fill: false,
+                borderColor: 'rgb(75, 192, 0)',
+                tension: 0.1
+            },
+        ]
+        };
+        let chart_cd4 = new Chart(ctx_cd4, {
+            data: data_cd4,
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                stacked: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'year',
+                            displayFormats: {
+                                day: 'MMMM yyyy'
+                            }
+                        },
+                    },
+                    y: {
+                        position: 'right',
+                        min: 5,
+                        max: 30,
+                        title: {
+                            display: true,
+                            text: 'CD4 percent (%)'
+                        }
+                    },
+                    y1: {
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'CD4 count (cell/mm^3)'
+                        },
+                        grid: {
+                            drawOnChartArea: false, // only want the grid lines for one axis to show up
+                        },
+                    },
+                }
+            }
+        })
+    </script>
+    {% endif %}
+</body>
+</html>

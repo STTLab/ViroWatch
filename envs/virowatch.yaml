@@ -1,0 +1,25 @@
+name: virowatch
+channels:
+  - nanoporetech
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  # QC
+  - seqkit=2.10.0
+  - chopper=0.10.0
+  - nanostat=1.6.0
+  - qualimap=2.3
+  - multiqc=1.28
+  - quast=5.3.0
+  # Assembly & polishing
+  - flye=2.9.6
+  - minimap2=2.29
+  - racon=1.5.0
+  - samtools=1.22
+  # Consensus
+  - medaka=2.1.1
+  # Sequence analysis
+  - blast=2.16.0
+  - sierrapy=0.4.3
+  - gql=3.5.3

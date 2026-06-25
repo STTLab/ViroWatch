@@ -1,0 +1,12 @@
+##gff-version 3
+##sequence-region K03455.1 1 9719
+# STUB — replace with real GFF3 from NCBI (K03455.1 HIV-1 HXB2)
+K03455.1	RefSeq	gene	790	2292	.	+	.	ID=gene-gag;Name=gag
+K03455.1	RefSeq	gene	2085	5096	.	+	.	ID=gene-pol;Name=pol
+K03455.1	RefSeq	gene	5041	5619	.	+	.	ID=gene-vif;Name=vif
+K03455.1	RefSeq	gene	5559	5850	.	+	.	ID=gene-vpr;Name=vpr
+K03455.1	RefSeq	gene	5831	8469	.	+	.	ID=gene-tat;Name=tat
+K03455.1	RefSeq	gene	6045	8724	.	+	.	ID=gene-rev;Name=rev
+K03455.1	RefSeq	gene	6062	6310	.	+	.	ID=gene-vpu;Name=vpu
+K03455.1	RefSeq	gene	6225	8795	.	+	.	ID=gene-env;Name=env
+K03455.1	RefSeq	gene	8797	9417	.	+	.	ID=gene-nef;Name=nef
