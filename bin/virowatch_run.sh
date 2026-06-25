@@ -14,19 +14,21 @@ MINLEN=2000
 MAXLEN=6000
 MINQUAL=10
 BLAST_DB=""
+CORE_NT_DB=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --sample)   SAMPLE="$2";   shift 2 ;;
-        --fastq)    FASTQ="$2";    shift 2 ;;
-        --ref_fa)   REF_FA="$2";   shift 2 ;;
-        --ref_gff)  REF_GFF="$2";  shift 2 ;;
-        --threads)  THREADS="$2";  shift 2 ;;
-        --model)    MODEL="$2";    shift 2 ;;
-        --minlen)   MINLEN="$2";   shift 2 ;;
-        --maxlen)   MAXLEN="$2";   shift 2 ;;
-        --minqual)  MINQUAL="$2";  shift 2 ;;
-        --blast_db) BLAST_DB="$2"; shift 2 ;;
+        --sample)      SAMPLE="$2";     shift 2 ;;
+        --fastq)       FASTQ="$2";      shift 2 ;;
+        --ref_fa)      REF_FA="$2";     shift 2 ;;
+        --ref_gff)     REF_GFF="$2";    shift 2 ;;
+        --threads)     THREADS="$2";    shift 2 ;;
+        --model)       MODEL="$2";      shift 2 ;;
+        --minlen)      MINLEN="$2";     shift 2 ;;
+        --maxlen)      MAXLEN="$2";     shift 2 ;;
+        --minqual)     MINQUAL="$2";    shift 2 ;;
+        --blast_db)    BLAST_DB="$2";   shift 2 ;;
+        --core_nt_db)  CORE_NT_DB="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -87,19 +89,33 @@ quast -o "${OUT}/quast" -t "${THREADS}" --nanopore "${FILTERED}" \
 echo "[$(date)] ${SAMPLE}: SierraPy"
 sierrapy fasta "${CONSENSUS}" -o "${OUT}/sierrapy.json"
 
-# ── 8. BLAST — LosAlamos (optional) ──────────────────────────────────────────
+# ── 8. BLAST (optional) ───────────────────────────────────────────────────────
+if [[ -n "${BLAST_DB}" || -n "${CORE_NT_DB}" ]]; then
+    mkdir -p "${OUT}/blast"
+fi
+
+if [[ -n "${CORE_NT_DB}" ]]; then
+    echo "[$(date)] ${SAMPLE}: BLAST vs core_nt"
+    blastn -task megablast \
+        -db "${CORE_NT_DB}" \
+        -query "${CONSENSUS}" \
+        -outfmt "7 qacc sacc staxid sscinames sblastnames qstart qend sstart send qcovs pident evalue bitscore" \
+        -out "${OUT}/blast/core_nt.blast.tsv" \
+        -num_threads "${THREADS}" -mt_mode 1 \
+        -max_target_seqs 25 -evalue 1e-20 -perc_identity 85
+fi
+
 if [[ -n "${BLAST_DB}" ]]; then
     echo "[$(date)] ${SAMPLE}: BLAST vs LosAlamos"
-    mkdir -p "${OUT}/blast"
     blastn -task megablast \
         -db "${BLAST_DB}" \
         -query "${CONSENSUS}" \
         -outfmt 11 \
-        -out "${OUT}/blast/result.asn" \
+        -out "${OUT}/blast/los_alamos.blast.asn" \
         -num_threads "${THREADS}" -mt_mode 1 \
         -max_target_seqs 25 -evalue 1e-20 -perc_identity 85
     blast_formatter \
-        -archive "${OUT}/blast/result.asn" \
+        -archive "${OUT}/blast/los_alamos.blast.asn" \
         -outfmt "7 qacc sacc staxid sscinames stitle qstart qend sstart send qcovs pident evalue bitscore" \
         -out "${OUT}/blast/los_alamos.blast.tsv"
 fi

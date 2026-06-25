@@ -15,7 +15,8 @@ process VIROWATCH_SAMPLE {
     path "${meta.id}/", emit: results
 
     script:
-    def blast_flag = params.blast_db ? "--blast_db ${params.blast_db}" : ""
+    def blast_flag    = params.blast_db    ? "--blast_db ${params.blast_db}"       : ""
+    def core_nt_flag  = params.core_nt_db  ? "--core_nt_db ${params.core_nt_db}"   : ""
     """
     virowatch_run.sh \\
         --sample  ${meta.id} \\
@@ -27,7 +28,8 @@ process VIROWATCH_SAMPLE {
         --minlen  ${params.chopper_minlen} \\
         --maxlen  ${params.chopper_maxlen} \\
         --minqual ${params.chopper_q} \\
-        ${blast_flag}
+        ${blast_flag} \\
+        ${core_nt_flag}
     """
 }
 
