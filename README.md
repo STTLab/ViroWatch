@@ -139,6 +139,42 @@ blast/los_alamos.blast.json  LosAlamos BLAST results (if --blast_db)
 blast/core_nt.blast.json     core_nt BLAST results (if --core_nt_db)
 multiqc/                     Aggregated QC report
 <sample_id>_report.html      Per-sample HIV sequence analysis report
+kg/                          NosoGraph-compatible CSVs (see below)
+```
+
+### Knowledge graph export (NosoGraph)
+
+Each sample's `kg/` directory contains flat CSVs ready for bulk import into [NosoGraph](https://github.com/STTLab/NosoGraph) (Neo4j):
+
+| CSV file | NosoGraph nodes created |
+|---|---|
+| `sample.csv` | `Sample` |
+| `assembly.csv` | `Assembly` → linked to `Sample` |
+| `biodata_files.csv` | `BioDataFile` (FASTQ input + consensus FASTA) → linked to `Assembly` |
+| `contigs.csv` | `Contig` → linked to `BioDataFile` |
+| `stanford_alignments.csv` | `StanfordHIVDRAlignment` → linked to `Contig` and `Protein` |
+| `stanford_predictions.csv` | `StanfordHIVDRPrediction`, `Drug`, `DrugClass` → linked to `Contig` via `Sample` |
+| `mutations.csv` | `Mutation` → linked to `StanfordHIVDRAlignment` |
+| `blast_hits.csv` | `ReferenceGenome`, `Organism` (from BLAST hits) |
+
+Contig IDs are namespaced `{sample_id}:{flye_contig_name}` (e.g. `sample_01:contig_1`) to remain globally unique across samples, since Flye always resets its numbering from `contig_1`.
+
+Import into Neo4j using NosoGraph's `BULK_MERGE_*` Cypher templates:
+
+```cypher
+// example — load predictions for one sample
+:auto LOAD CSV WITH HEADERS FROM 'file:///sample_01/kg/stanford_predictions.csv' AS rec
+CALL { WITH rec
+    MERGE (dc:DrugClass {name: rec.drug_class})
+    MERGE (d:Drug {name: rec.drug_name})
+    MERGE (d)-[:IN_DRUG_CLASS]->(dc)
+    MERGE (pred:StanfordHIVDRPrediction {prediction_id: rec.prediction_id})
+      ON CREATE SET pred.contig_id = rec.contig_id, pred.sample_id = rec.sample_id,
+                    pred.gene = rec.gene, pred.drug_name = rec.drug_name
+    SET pred.score = toInteger(rec.score), pred.level = toInteger(rec.level),
+        pred.interpretation = rec.interpretation
+    MERGE (pred)-[:PREDICTS_RESISTANCE_TO]->(d)
+} IN TRANSACTIONS OF 500 ROWS;
 ```
 
 ## LosAlamos BLAST database setup
