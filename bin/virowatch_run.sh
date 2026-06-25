@@ -137,4 +137,14 @@ if [[ -n "${REPORT_DIR}" ]]; then
         ${VL_FLAG} ${CD4_FLAG}
 fi
 
+# ── 11. KG CSV export ─────────────────────────────────────────────────────────
+if [[ -n "${REPORT_DIR}" ]]; then
+    echo "[$(date)] ${SAMPLE}: KG CSV export"
+    python "${REPORT_DIR}/kg_export.py" \
+        --sample     "${SAMPLE}" \
+        --sample_dir "${OUT}" \
+        --report_dir "${REPORT_DIR}" \
+        --fastq      "${FASTQ}"
+fi
+
 echo "[$(date)] ${SAMPLE}: done"
