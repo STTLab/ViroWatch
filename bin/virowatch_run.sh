@@ -78,7 +78,7 @@ done
 
 # ── 5. Medaka consensus ───────────────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: Medaka consensus"
-medaka_consensus -i "${FILTERED}" -d "${CONTIGS}" \
+micromamba run -n medaka medaka_consensus -i "${FILTERED}" -d "${CONTIGS}" \
     -o "${OUT}/medaka_consensus" -t "${THREADS}" -m "${MODEL}"
 CONSENSUS="${OUT}/medaka_consensus/consensus.fasta"
 
@@ -89,7 +89,7 @@ quast -o "${OUT}/quast" -t "${THREADS}" --nanopore "${FILTERED}" \
 
 # ── 7. SierraPy drug resistance ───────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: SierraPy"
-sierrapy fasta "${CONSENSUS}" -o "${OUT}/sierrapy.json"
+sierrapy fasta "${CONSENSUS}" --no-sharding -o "${OUT}/sierrapy.json"
 
 # ── 8. BLAST (optional) ───────────────────────────────────────────────────────
 if [[ -n "${BLAST_DB}" || -n "${CORE_NT_DB}" ]]; then

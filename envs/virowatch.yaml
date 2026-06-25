@@ -5,6 +5,20 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  # --- AVX2-safe pins --------------------------------------------------------
+  # Intel Xeon E5-2670 v0 (test server) lacks AVX2; newer bioconda builds of
+  # flye emit AVX2 and abort with SIGILL. flye=2.9.5 is the newest build that
+  # runs without AVX2. Relax on AVX2-capable hardware.
+  - flye=2.9.5
+  # racon 1.5.0 (the only bioconda build) also emits AVX2; racon 1.4.20 does
+  # not, but its old-zlib dep conflicts with other packages in this env so it
+  # cannot be solved by conda. Workaround: install the 1.4.20 binary directly
+  # into the conda env after creation:
+  #   wget https://conda.anaconda.org/bioconda/linux-64/racon-1.4.20-hd03093a_2.tar.bz2
+  #   tar xjf racon-1.4.20-hd03093a_2.tar.bz2 bin/racon bin/rampler -C <env>/
+  # (The binary links against system libz, so the solver constraint is spurious.)
+  - racon
+  # ---------------------------------------------------------------------------
   # QC
   - seqkit=2.10.0
   - chopper=0.10.0
@@ -13,12 +27,10 @@ dependencies:
   - multiqc=1.28
   - quast=5.3.0
   # Assembly & polishing
-  - flye=2.9.6
-  - minimap2=2.29
-  - racon=1.5.0
+  - minimap2
+  - racon
   - samtools=1.22
-  # Consensus
-  - medaka=2.1.1
+  # Consensus — medaka lives in its own env (envs/medaka.yaml); called via micromamba run
   # Sequence analysis
   - blast=2.16.0
   - sierrapy=0.4.3

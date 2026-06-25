@@ -1,0 +1,38 @@
+// Site-specific configuration — machine/lab-level settings that should not
+// be committed to the repo. Copy this file to conf/site.config, fill in
+// paths for your site, and pass at runtime:
+//
+//   nextflow run . --input samplesheet.csv -c conf/site.config
+//
+// Alternatively, add to ~/.nextflow/config to apply automatically to every run.
+
+params {
+    // BLAST databases — set paths for your site; leave null to disable
+    blast_db   = null   // e.g. '/mnt/central/BLAST/HIV64148_LosAlamos/LosAlamos_db'
+    core_nt_db = null   // e.g. '/mnt/central/BLAST/core_nt/core_nt'
+                        // also requires: export BLASTDB=/mnt/central/BLAST/core_nt
+
+    // Default output directory for this site (overrides ./results)
+    // outdir = '/scratch/virowatch-results'
+
+    // Override test profile outdir to a site-specific scratch path
+    // (the -profile test default is ./results_test)
+    // outdir = '/scratch/virowatch-results_test'   // only takes effect with -profile test if set here
+
+    // Medaka model — must match the basecalling model used
+    // medaka_model = 'r1041_e82_400bps_sup_v5.2.0'
+
+    // Resource caps for this machine
+    // max_memory = '128.GB'
+    // max_cpus   = 32
+    // max_time   = '72.h'
+}
+
+// Nextflow working directory — use fast scratch storage if available
+// workDir = '/scratch/nextflow_work'
+
+// Executor settings — uncomment for HPC/cloud
+// executor {
+//     name  = 'slurm'
+//     queue = 'gpu'
+// }
