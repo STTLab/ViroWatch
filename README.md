@@ -139,14 +139,14 @@ blast/los_alamos.blast.json  LosAlamos BLAST results (if --blast_db)
 blast/core_nt.blast.json     core_nt BLAST results (if --core_nt_db)
 multiqc/                     Aggregated QC report
 <sample_id>_report.html      Per-sample HIV sequence analysis report
-kg/                          NosoGraph-compatible CSVs (see below)
+kg/                          Neo4j-compatible CSVs for knowledge graph import (see below)
 ```
 
-### Knowledge graph export (NosoGraph)
+### Knowledge graph export
 
-Each sample's `kg/` directory contains flat CSVs ready for bulk import into [NosoGraph](https://github.com/STTLab/NosoGraph) (Neo4j):
+Each sample's `kg/` directory contains flat CSVs ready for bulk import into a Neo4j knowledge graph:
 
-| CSV file | NosoGraph nodes created |
+| CSV file | Neo4j nodes created |
 |---|---|
 | `sample.csv` | `Sample` |
 | `assembly.csv` | `Assembly` → linked to `Sample` |
@@ -159,7 +159,7 @@ Each sample's `kg/` directory contains flat CSVs ready for bulk import into [Nos
 
 Contig IDs are namespaced `{sample_id}:{flye_contig_name}` (e.g. `sample_01:contig_1`) to remain globally unique across samples, since Flye always resets its numbering from `contig_1`.
 
-Import into Neo4j using NosoGraph's `BULK_MERGE_*` Cypher templates:
+Import into Neo4j using `BULK_MERGE_*` Cypher templates or the bundled `assets/neo4j_loader.ipynb`:
 
 ```cypher
 // example — load predictions for one sample
@@ -247,7 +247,7 @@ CRF01_AE (13.7%) is well represented, relevant for Southeast Asian surveillance.
 
 > **Note:** The graph database component is under active development. Documentation below describes the planned schema.
 
-| ![Figure 2: An illustration of entities relationship pattern for managing bacterial whole genome sequencing data and all relevant information by NosoGraph.](./README/Images/figure_2.png?raw=true "Figure 2")
+| ![Figure 2: An illustration of entities relationship pattern for managing bacterial whole genome sequencing data and all relevant information in ViroWatch.](./README/Images/figure_2.png?raw=true "Figure 2")
 |:--
 | *Figure 2:* The structure of the Knowledge Graph for ViroWatch
 
