@@ -4,20 +4,28 @@ ViroWatch is a Nextflow pipeline for HIV-1 genome surveillance from Oxford Nanop
 
 Designed for low-resource settings — portable, single conda environment, resume-capable.
 
+**Documentation:** [Installation & Quick-Start](wiki/tutorial.md) · [Neo4j Tutorial](wiki/neo4j.md)
+
 ## Pipeline overview
 
-```
-FASTQ → dedup → filter → NanoStat
-              → minimap2 → qualimap
-              → Flye (de novo assembly)
-              → Racon ×3 (polishing)
-              → Medaka (consensus)
-              → QUAST (assembly QC)
-              → SierraPy (Stanford HIVDB drug resistance)
-              → BLAST vs LosAlamos (optional subtyping)
-              → BLAST vs core_nt (optional; NCBI taxonomy)
-              → MultiQC (aggregated QC report)
-              → HTML HIV sequence analysis report (per sample)
+```mermaid
+flowchart LR
+    FASTQ([FASTQ]) --> DEDUP[seqkit rmdup]
+    DEDUP --> CHOP[chopper]
+    CHOP --> NS[NanoStat]
+    CHOP --> MM[minimap2] --> QM[qualimap]
+    CHOP --> FLYE[Flye]
+    FLYE --> RACON[Racon ×3]
+    RACON --> MEDAKA[Medaka]
+    MEDAKA --> QUAST[QUAST]
+    MEDAKA --> SP[SierraPy]
+    MEDAKA --> BLA[BLAST LosAlamos]:::opt
+    MEDAKA --> BNT[BLAST core_nt]:::opt
+    NS & QM & QUAST --> MQC[MultiQC]
+    MQC & SP & BLA & BNT --> RPT[/HTML report/]
+    MEDAKA & SP & BLA & BNT --> KG[(kg/ CSVs)]
+
+    classDef opt fill:#f5f5f5,stroke:#aaa,stroke-dasharray:5 5
 ```
 
 ## Requirements
@@ -159,7 +167,7 @@ Each sample's `kg/` directory contains flat CSVs ready for bulk import into a Ne
 
 Contig IDs are namespaced `{sample_id}:{flye_contig_name}` (e.g. `sample_01:contig_1`) to remain globally unique across samples, since Flye always resets its numbering from `contig_1`.
 
-Import into Neo4j using `BULK_MERGE_*` Cypher templates or the bundled `assets/neo4j_loader.ipynb`:
+Import into Neo4j using the bundled `assets/virowatch_cypher_templates.csv` (import via Neo4j Desktop → Saved Cypher → Import). Example query:
 
 ```cypher
 // example — load predictions for one sample
@@ -245,42 +253,16 @@ CRF01_AE (13.7%) is well represented, relevant for Southeast Asian surveillance.
 
 ## Knowledge graph (Neo4j)
 
-> **Note:** The graph database component is under active development. Documentation below describes the planned schema.
-
 | ![Figure 2: An illustration of entities relationship pattern for managing bacterial whole genome sequencing data and all relevant information in ViroWatch.](./README/Images/figure_2.png?raw=true "Figure 2")
 |:--
-| *Figure 2:* The structure of the Knowledge Graph for ViroWatch
+| *Figure 2:* The structure of the Knowledge Graph in ViroWatch
 
-The Knowledge Graph is structured across three interconnected domains:
+The Knowledge Graph spans three interconnected domains:
 
 1. **Clinical terminology** — standardized concepts using SNOMED CT (disorders, clinical findings, morphologic abnormalities).
 2. **Patient and clinical metadata** — patient records, specimens, and lab results (viral load, CD4+ counts).
 3. **Microbiology and genomics** — isolates, assemblies, and genetic variants linked to clinical data.
 
-### Quick Start (Neo4j Desktop)
-
-#### 1. Install Neo4j Desktop
-
-Download from [https://neo4j.com/download/](https://neo4j.com/download/) and follow installation instructions.
-
-#### 2. Create a New Database
-
-1. Choose "Local instances" on the sidebar menu
-2. Click "Create instance" and fill in instance details
-3. Set a database name (e.g., `virowatch-db`) and a password
-4. Click "Create" and connect via the "Query" or "Explore" menu
-
-#### 3. Import Data
-
-Place CSV files in the Neo4j import directory (`Path: C:\Users\<username>\.Neo4jDesktop2\Data\dbmss\dbms-<instance-id>\import`) then load with Cypher:
-
-```cypher
-LOAD CSV WITH HEADERS FROM 'file:///<file_name>.csv' AS row
-RETURN row;
-```
-
-#### 4. Explore the Graph
-
-Use Neo4j Browser to visualize relationships, expand nodes (double-click), and run analytical queries.
+For installation, database setup, data loading, and surveillance query templates see **[wiki/neo4j.md](wiki/neo4j.md)**.
 
 > **Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Neo4j, Inc. "Neo4j" and related trademarks are the property of Neo4j, Inc.

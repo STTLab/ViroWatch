@@ -1,0 +1,291 @@
+name,description,query,id,parentId,isFolder
+ViroWatch,,,0,,true
+SETUP,,,1,0,true
+LOAD DATA,,,2,0,true
+QUERIES,,,3,0,true
+UTILITIES,,,4,0,true
+Create Constraints,,"// Run before loading data.
+// Paste all into Neo4j Browser and press Ctrl+Enter.
+// Browser executes each statement in sequence.
+
+CREATE CONSTRAINT sample_id IF NOT EXISTS
+  FOR (n:Sample) REQUIRE n.sample_id IS UNIQUE;
+
+CREATE CONSTRAINT assembly_id IF NOT EXISTS
+  FOR (n:Assembly) REQUIRE n.assembly_id IS UNIQUE;
+
+CREATE CONSTRAINT contig_id IF NOT EXISTS
+  FOR (n:Contig) REQUIRE n.contig_id IS UNIQUE;
+
+CREATE CONSTRAINT biodata_uri IF NOT EXISTS
+  FOR (n:BioDataFile) REQUIRE n.uri IS UNIQUE;
+
+CREATE CONSTRAINT stanford_alignment_sha IF NOT EXISTS
+  FOR (n:StanfordHIVDRAlignment) REQUIRE n.result_sha256 IS UNIQUE;
+
+CREATE CONSTRAINT prediction_id IF NOT EXISTS
+  FOR (n:StanfordHIVDRPrediction) REQUIRE n.prediction_id IS UNIQUE;
+
+CREATE CONSTRAINT drug_name IF NOT EXISTS
+  FOR (n:Drug) REQUIRE n.name IS UNIQUE;
+
+CREATE CONSTRAINT drug_class_name IF NOT EXISTS
+  FOR (n:DrugClass) REQUIRE n.name IS UNIQUE;
+
+CREATE CONSTRAINT protein_abbr IF NOT EXISTS
+  FOR (n:Protein) REQUIRE n.abbreviation IS UNIQUE;
+
+CREATE CONSTRAINT ref_genome_accession IF NOT EXISTS
+  FOR (n:ReferenceGenome) REQUIRE n.accession_no IS UNIQUE;
+
+CREATE CONSTRAINT organism_taxid IF NOT EXISTS
+  FOR (n:Organism) REQUIRE n.taxid IS UNIQUE;
+
+CREATE CONSTRAINT mutation_gene_text IF NOT EXISTS
+  FOR (n:Mutation) REQUIRE (n.gene, n.text) IS UNIQUE;",5,1,false
+01 Sample,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// CSV must be in the Neo4j import directory at: <import_dir>/<sample_id>/kg/
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/sample.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (s:Sample {sample_id: rec.sample_id})
+    ON CREATE SET s.created_at = datetime()
+} IN TRANSACTIONS OF 500 ROWS;",6,2,false
+02 Assembly,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/assembly.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (a:Assembly {assembly_id: rec.assembly_id})
+    ON CREATE SET a.assembler   = rec.assembler,
+                  a.created_at  = date(rec.created_at)
+  WITH a, rec
+  MATCH (s:Sample {sample_id: rec.sample_id})
+  MERGE (s)-[:HAS_ASSEMBLY]->(a)
+} IN TRANSACTIONS OF 500 ROWS;",7,2,false
+03 BioDataFile FASTA,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// Loads the consensus FASTA produced by the assembly (PRODUCE edge)
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/biodata_files.csv' AS rec
+WITH rec WHERE rec.file_type = 'FASTA' AND rec.assembly_id IS NOT NULL AND rec.assembly_id <> ''
+CALL {
+  WITH rec
+  MERGE (f:BioDataFile {uri: rec.uri})
+    ON CREATE SET f.file_type  = rec.file_type,
+                  f.compressed = rec.compressed,
+                  f.sha256     = rec.sha256
+  WITH f, rec
+  MATCH (a:Assembly {assembly_id: rec.assembly_id})
+  MERGE (a)-[:PRODUCE]->(f)
+} IN TRANSACTIONS OF 500 ROWS;",8,2,false
+04 BioDataFile FASTQ,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// Loads the input FASTQ reads (ASSEMBLED_FROM edge)
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/biodata_files.csv' AS rec
+WITH rec WHERE rec.file_type = 'FASTQ'
+CALL {
+  WITH rec
+  MERGE (f:BioDataFile {uri: rec.uri})
+    ON CREATE SET f.file_type  = rec.file_type,
+                  f.compressed = rec.compressed,
+                  f.sha256     = rec.sha256
+  WITH f, rec
+  MATCH (s:Sample {sample_id: rec.sample_id})-[:HAS_ASSEMBLY]->(a:Assembly)
+  MERGE (a)-[:ASSEMBLED_FROM]->(f)
+} IN TRANSACTIONS OF 500 ROWS;",9,2,false
+05 Contigs,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/contigs.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (c:Contig {contig_id: rec.contig_id})
+    ON CREATE SET
+      c.contig_name        = rec.contig_name,
+      c.length             = toInteger(rec.length),
+      c.coverage           = toFloat(rec.coverage),
+      c.is_circular        = (rec.is_circular = 'true'),
+      c.is_repeated_region = (rec.is_repeated_region = 'true'),
+      c.multiplicity       = toInteger(rec.multiplicity),
+      c.alt_group          = rec.alt_group,
+      c.graph_path         = rec.graph_path,
+      c.sequence           = rec.sequence,
+      c.sequence_hash      = rec.sequence_hash,
+      c.hash_algorithm     = rec.hash_algorithm
+  WITH c, rec
+  MATCH (a:Assembly {assembly_id: rec.assembly_id})-[:PRODUCE]->(f:BioDataFile)
+  MERGE (f)-[:HAS_CONTIG]->(c)
+} IN TRANSACTIONS OF 500 ROWS;",10,2,false
+06 Stanford Alignments,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/stanford_alignments.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (al:StanfordHIVDRAlignment {result_sha256: rec.result_sha256})
+    ON CREATE SET
+      al.for_contig_id           = rec.contig_id_prefix,
+      al.timestamp               = CASE
+        WHEN rec.timestamp IS NOT NULL AND rec.timestamp <> ''
+        THEN datetime(rec.timestamp) ELSE NULL END,
+      al.database_version        = rec.database_version,
+      al.database_published_date = rec.database_published_date
+  WITH al, rec
+  FOREACH (_ IN CASE WHEN rec.gene IS NOT NULL AND rec.gene <> '' THEN [1] ELSE [] END |
+    MERGE (p:Protein {abbreviation: rec.gene})
+    MERGE (al)-[:ALIGNED_TO]->(p)
+  )
+  WITH al, rec
+  OPTIONAL MATCH (c:Contig {contig_id: rec.contig_id_prefix})
+  FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:HAS_STANFORD_HIVDR_ALIGNMENT]->(al)
+  )
+} IN TRANSACTIONS OF 500 ROWS;",11,2,false
+07 Stanford Predictions,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/stanford_predictions.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (dc:DrugClass {name: rec.drug_class})
+  MERGE (d:Drug {name: rec.drug_name})
+    ON CREATE SET d.full_name    = rec.drug_full_name,
+                  d.display_abbr = rec.drug_abbr
+  MERGE (d)-[:IN_DRUG_CLASS]->(dc)
+  MERGE (pred:StanfordHIVDRPrediction {prediction_id: rec.prediction_id})
+  SET pred.sample_id      = rec.sample_id,
+      pred.gene           = rec.gene,
+      pred.drug_name      = rec.drug_name,
+      pred.score          = rec.score,
+      pred.level          = rec.level,
+      pred.interpretation = rec.interpretation
+  MERGE (pred)-[:PREDICTS_RESISTANCE_TO]->(d)
+  WITH pred, rec
+  MATCH (s:Sample {sample_id: rec.sample_id})
+  MERGE (s)-[:HAS_STANFORD_HIVDR_PREDICTION]->(pred)
+  WITH pred, rec
+  OPTIONAL MATCH (c:Contig {contig_id: rec.contig_id})
+  FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:HAS_STANFORD_HIVDR_PREDICTION]->(pred)
+  )
+} IN TRANSACTIONS OF 500 ROWS;",12,2,false
+08 Mutations,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/mutations.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (m:Mutation {gene: rec.gene, text: rec.text})
+  SET m.mutation_id        = rec.mutation_id,
+      m.primary_type       = rec.primary_type,
+      m.is_sdrm            = rec.is_sdrm,
+      m.position           = rec.position,
+      m.has_stop           = rec.has_stop,
+      m.is_apobec_mutation = rec.is_apobec_mutation,
+      m.is_apobec_drm      = rec.is_apobec_drm,
+      m.is_insertion       = rec.is_insertion,
+      m.is_deletion        = rec.is_deletion,
+      m.is_unusual         = rec.is_unusual
+  FOREACH (_ IN CASE WHEN rec.result_sha256 IS NOT NULL AND rec.result_sha256 <> '' THEN [1] ELSE [] END |
+    MERGE (al:StanfordHIVDRAlignment {result_sha256: rec.result_sha256})
+    MERGE (al)-[:FOUND]->(m)
+  )
+} IN TRANSACTIONS OF 500 ROWS;",13,2,false
+09 BLAST Hits,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// Only present if --blast_db or --core_nt_db was enabled during the pipeline run
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/blast_hits.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (refg:ReferenceGenome {accession_no: rec.accession_no})
+    ON CREATE SET refg.name             = rec.name,
+                  refg.source_database  = rec.source_database,
+                  refg.annotation_source = 'BLAST'
+  FOREACH (_ IN CASE WHEN rec.taxid IS NOT NULL AND rec.taxid <> '' THEN [1] ELSE [] END |
+    MERGE (o:Organism {taxid: rec.taxid})
+      ON CREATE SET o.sciname = rec.sciname
+    MERGE (refg)-[:REFERENCE_GENOME_OF]->(o)
+  )
+  WITH refg, rec
+  OPTIONAL MATCH (c:Contig {contig_id: rec.query_contig_id})
+  FOREACH (_ IN CASE WHEN c IS NOT NULL THEN [1] ELSE [] END |
+    MERGE (c)-[:HAS_BLAST_HIT]->(refg)
+  )
+} IN TRANSACTIONS OF 500 ROWS;",14,2,false
+Node and Relationship Counts,,"MATCH (n)
+RETURN labels(n)[0] AS label, count(n) AS count
+ORDER BY count DESC;",15,3,false
+Drug Resistance Summary,,"// All resistance predictions at level >= 3 (low-level and above)
+
+MATCH (s:Sample)-[:HAS_STANFORD_HIVDR_PREDICTION]->(pred:StanfordHIVDRPrediction)
+      -[:PREDICTS_RESISTANCE_TO]->(d:Drug)-[:IN_DRUG_CLASS]->(dc:DrugClass)
+WHERE toInteger(pred.level) >= 3
+RETURN s.sample_id       AS sample,
+       dc.name           AS drug_class,
+       d.name            AS drug,
+       pred.level        AS level,
+       pred.interpretation AS resistance
+ORDER BY sample, drug_class, drug;",16,3,false
+High-Level Resistance Only,,"// Level 5 = high-level resistance in Stanford HIVDB scoring
+
+MATCH (s:Sample)-[:HAS_STANFORD_HIVDR_PREDICTION]->(pred:StanfordHIVDRPrediction)
+      -[:PREDICTS_RESISTANCE_TO]->(d:Drug)-[:IN_DRUG_CLASS]->(dc:DrugClass)
+WHERE toInteger(pred.level) >= 5
+RETURN s.sample_id       AS sample,
+       dc.name           AS drug_class,
+       d.name            AS drug,
+       pred.interpretation AS resistance
+ORDER BY sample, drug_class, drug;",17,3,false
+BLAST Subtype Identification,,"MATCH (s:Sample)-[:HAS_ASSEMBLY]->(:Assembly)-[:PRODUCE]->(:BioDataFile)
+      -[:HAS_CONTIG]->(c:Contig)-[:HAS_BLAST_HIT]->(rg:ReferenceGenome)
+      -[:REFERENCE_GENOME_OF]->(o:Organism)
+RETURN s.sample_id      AS sample,
+       c.contig_id      AS contig,
+       o.sciname        AS subtype,
+       rg.accession_no  AS accession
+ORDER BY sample, contig;",18,3,false
+Mutations per Gene per Sample,,"MATCH (s:Sample)-[:HAS_ASSEMBLY]->(:Assembly)-[:PRODUCE]->(:BioDataFile)
+      -[:HAS_CONTIG]->(c:Contig)
+      -[:HAS_STANFORD_HIVDR_ALIGNMENT]->(al:StanfordHIVDRAlignment)
+      -[:FOUND]->(m:Mutation)
+RETURN s.sample_id       AS sample,
+       m.gene            AS gene,
+       collect(m.text)   AS mutations,
+       count(m)          AS mutation_count
+ORDER BY sample, gene;",19,3,false
+SDRMs,,"// Surveillance Drug Resistance Mutations
+
+MATCH (s:Sample)-[:HAS_ASSEMBLY]->(:Assembly)-[:PRODUCE]->(:BioDataFile)
+      -[:HAS_CONTIG]->(:Contig)
+      -[:HAS_STANFORD_HIVDR_ALIGNMENT]->(al:StanfordHIVDRAlignment)
+      -[:FOUND]->(m:Mutation)
+WHERE m.is_sdrm = 'true'
+RETURN s.sample_id   AS sample,
+       m.gene        AS gene,
+       m.text        AS mutation,
+       m.primary_type AS type
+ORDER BY sample, gene, mutation;",20,3,false
+Multi-Class Resistance Flag,,"// Samples with high-level resistance (>= 5) in two or more drug classes
+
+MATCH (s:Sample)-[:HAS_STANFORD_HIVDR_PREDICTION]->(pred:StanfordHIVDRPrediction)
+      -[:PREDICTS_RESISTANCE_TO]->(:Drug)-[:IN_DRUG_CLASS]->(dc:DrugClass)
+WHERE toInteger(pred.level) >= 5
+WITH s, collect(DISTINCT dc.name) AS resistant_classes
+WHERE size(resistant_classes) >= 2
+RETURN s.sample_id       AS sample,
+       resistant_classes
+ORDER BY sample;",21,3,false
+Full Sample Graph Traversal,,"// Replace sample_01 with your sample ID
+// Run in Graph view for visual output
+
+MATCH path =
+  (s:Sample {sample_id: 'sample_01'})
+  -[:HAS_ASSEMBLY]->(a:Assembly)
+  -[:PRODUCE]->(f:BioDataFile)
+  -[:HAS_CONTIG]->(c:Contig)
+  -[:HAS_BLAST_HIT]->(rg:ReferenceGenome)
+  -[:REFERENCE_GENOME_OF]->(o:Organism)
+RETURN path;",22,3,false
+Delete All Data,,"// WARNING: removes all nodes and relationships in the current database
+// Use CALL { } IN TRANSACTIONS to avoid heap issues on large graphs
+
+MATCH (n)
+CALL { WITH n DETACH DELETE n }
+IN TRANSACTIONS OF 1000 ROWS;",23,4,false
