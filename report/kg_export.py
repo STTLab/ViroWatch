@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-ViroWatch → NosoGraph knowledge-graph CSV exporter.
+ViroWatch knowledge-graph CSV exporter.
 
-Reads per-sample pipeline outputs and writes flat CSVs that match the
-BULK_MERGE_* Cypher templates in NosoGraph:
+Reads per-sample pipeline outputs and writes flat CSVs for bulk import
+into a Neo4j knowledge graph via BULK_MERGE_* Cypher templates:
 
   kg/sample.csv                  — Sample node
   kg/assembly.csv                — Assembly node (linked to Sample)
@@ -168,7 +168,7 @@ def export_sierrapy(kg_dir, sample_id, sample_dir, report_dir, contig_id_map):
             db_published    = report["version"]["publishDate"]
 
             alignment_rows.append({
-                "result_sha":             result_sha,
+                "result_sha256":          result_sha,
                 "contig_id_prefix":       contig_id,
                 "gene":                   gene,
                 "timestamp":              file_ts,
@@ -220,12 +220,12 @@ def export_sierrapy(kg_dir, sample_id, sample_dir, report_dir, contig_id_map):
                     "is_insertion":      _bool_str(m.get("isInsertion", False)),
                     "is_deletion":       _bool_str(m.get("isDeletion", False)),
                     "is_unusual":        _bool_str(m.get("isUnusual", False)),
-                    "result_sha":        result_sha,
+                    "result_sha256":     result_sha,
                 })
 
     _write_csv(
         kg_dir / "stanford_alignments.csv",
-        ["result_sha", "contig_id_prefix", "gene", "timestamp",
+        ["result_sha256", "contig_id_prefix", "gene", "timestamp",
          "database_version", "database_published_date"],
         alignment_rows,
     )
@@ -241,7 +241,7 @@ def export_sierrapy(kg_dir, sample_id, sample_dir, report_dir, contig_id_map):
         kg_dir / "mutations.csv",
         ["gene", "text", "mutation_id", "primary_type", "is_sdrm", "position",
          "has_stop", "is_apobec_mutation", "is_apobec_drm",
-         "is_insertion", "is_deletion", "is_unusual", "result_sha"],
+         "is_insertion", "is_deletion", "is_unusual", "result_sha256"],
         mutation_rows,
     )
 
@@ -294,7 +294,7 @@ def export_blast_hits(kg_dir, sample_id, sample_dir, report_dir, contig_id_map):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export ViroWatch per-sample outputs to NosoGraph-compatible CSVs"
+        description="Export ViroWatch per-sample outputs to Neo4j-compatible CSVs"
     )
     parser.add_argument("--sample",     required=True, help="Sample ID")
     parser.add_argument("--sample_dir", required=True, help="Path to sample output directory")
