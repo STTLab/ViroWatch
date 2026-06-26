@@ -4,7 +4,10 @@ ViroWatch is a Nextflow pipeline for HIV-1 genome surveillance from Oxford Nanop
 
 Designed for low-resource settings — portable, single conda environment, resume-capable.
 
-**Documentation:** [Installation & Quick-Start](wiki/tutorial.md) · [Neo4j Tutorial](wiki/neo4j.md)
+**Documentation:** 
+
+- [Pipeline Quick-Start](https://github.com/STTLab/ViroWatch/wiki/Pipeline-Tutorial)
+- [Knowledge graph Tutorial](https://github.com/STTLab/ViroWatch/wiki/Knowledge-graph-Tutorial)
 
 ## Pipeline overview
 
@@ -263,6 +266,6 @@ The Knowledge Graph spans three interconnected domains:
 2. **Patient and clinical metadata** — patient records, specimens, and lab results (viral load, CD4+ counts).
 3. **Microbiology and genomics** — isolates, assemblies, and genetic variants linked to clinical data.
 
-For installation, database setup, data loading, and surveillance query templates see **[wiki/neo4j.md](wiki/neo4j.md)**.
+For installation, database setup, data loading, and surveillance query templates see the **[Knowledge graph Tutorial](https://github.com/STTLab/ViroWatch/wiki/Knowledge-graph-Tutorial)**.
 
 > **Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Neo4j, Inc. "Neo4j" and related trademarks are the property of Neo4j, Inc.
