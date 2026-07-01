@@ -17,6 +17,7 @@ process VIROWATCH_SAMPLE {
     script:
     def blast_flag    = params.blast_db   ? "--blast_db ${params.blast_db}"      : ""
     def core_nt_flag  = params.core_nt_db ? "--core_nt_db ${params.core_nt_db}"  : ""
+    def kraken2_flag  = params.kraken2_db ? "--kraken2_db ${params.kraken2_db}"  : ""
     def vl_flag       = params.vl_csv     ? "VL_CSV=${params.vl_csv}"            : ""
     def cd4_flag      = params.cd4_csv    ? "CD4_CSV=${params.cd4_csv}"          : ""
     """
@@ -31,8 +32,12 @@ process VIROWATCH_SAMPLE {
         --maxlen     ${params.chopper_maxlen} \\
         --minqual    ${params.chopper_q} \\
         --report_dir ${projectDir}/report \\
+        --kraken2_confidence ${params.kraken2_confidence} \\
+        --kraken2_z_min      ${params.kraken2_z_min} \\
+        --kraken2_min_taxa   ${params.kraken2_min_taxa} \\
         ${blast_flag} \\
-        ${core_nt_flag}
+        ${core_nt_flag} \\
+        ${kraken2_flag}
     """
 }
 

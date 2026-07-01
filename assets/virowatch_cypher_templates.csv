@@ -42,7 +42,10 @@ CREATE CONSTRAINT organism_taxid IF NOT EXISTS
   FOR (n:Organism) REQUIRE n.taxid IS UNIQUE;
 
 CREATE CONSTRAINT mutation_gene_text IF NOT EXISTS
-  FOR (n:Mutation) REQUIRE (n.gene, n.text) IS UNIQUE;",5,1,false
+  FOR (n:Mutation) REQUIRE (n.gene, n.text) IS UNIQUE;
+
+CREATE CONSTRAINT tcr_id IF NOT EXISTS
+  FOR (n:TaxonomicClassification) REQUIRE n.process_run_id IS UNIQUE;",5,1,false
 01 Sample,,"// Replace <sample_id> with your sample ID, e.g. sample_01
 // CSV must be in the Neo4j import directory at: <import_dir>/<sample_id>/kg/
 
@@ -209,6 +212,29 @@ CALL {
     MERGE (c)-[:HAS_BLAST_HIT]->(refg)
   )
 } IN TRANSACTIONS OF 500 ROWS;",14,2,false
+10 Taxonomic Classification,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// Kraken2 read-set QC. Sample -[:CLASSIFIED_IN]-> (:ProcessRun:TaxonomicClassification).
+// Per-taxon results are stored as a JSON string property (taxa_json), sorted by abundance desc.
+// CLASSIFIED_FROM reuses the input FASTQ BioDataFile loaded by '04 BioDataFile FASTQ'
+// (skipped automatically if that file was never loaded, e.g. assembly failed).
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/taxonomic_classification.csv' AS rec
+CALL {
+  WITH rec
+  MATCH (s:Sample {sample_id: rec.sample_id})
+  MERGE (tc:ProcessRun:TaxonomicClassification {process_run_id: rec.process_run_id})
+    ON CREATE SET tc.process = 'taxonomic_classification'
+  SET tc.tool       = rec.tool,
+      tc.created_at = date(rec.created_at),
+      tc.taxa_json  = rec.taxa_json,
+      tc.classified_reads   = CASE WHEN rec.classified_reads   <> '' THEN toInteger(rec.classified_reads)   ELSE null END,
+      tc.unclassified_reads = CASE WHEN rec.unclassified_reads <> '' THEN toInteger(rec.unclassified_reads) ELSE null END
+  MERGE (s)-[:CLASSIFIED_IN]->(tc)
+  WITH tc, rec
+  WHERE rec.fastq_uri IS NOT NULL AND rec.fastq_uri <> ''
+  MATCH (f:BioDataFile {uri: rec.fastq_uri})
+  MERGE (tc)-[:CLASSIFIED_FROM]->(f)
+} IN TRANSACTIONS OF 500 ROWS;",24,2,false
 Node and Relationship Counts,,"MATCH (n)
 RETURN labels(n)[0] AS label, count(n) AS count
 ORDER BY count DESC;",15,3,false
@@ -283,6 +309,17 @@ MATCH path =
   -[:HAS_BLAST_HIT]->(rg:ReferenceGenome)
   -[:REFERENCE_GENOME_OF]->(o:Organism)
 RETURN path;",22,3,false
+Read-set Taxonomic QC,,"// Kraken2 read-set QC per sample: classified/unclassified counts + the taxa
+// (already sorted by abundance desc, trace taxa folded into an 'Other' row).
+// taxa_json is a JSON string; parse with apoc.convert.fromJson if APOC is installed.
+
+MATCH (s:Sample)-[:CLASSIFIED_IN]->(tc:TaxonomicClassification)
+RETURN s.sample_id         AS sample,
+       tc.tool             AS tool,
+       tc.classified_reads AS classified,
+       tc.unclassified_reads AS unclassified,
+       tc.taxa_json        AS taxa
+ORDER BY sample;",25,3,false
 Delete All Data,,"// WARNING: removes all nodes and relationships in the current database
 // Use CALL { } IN TRANSACTIONS to avoid heap issues on large graphs
 

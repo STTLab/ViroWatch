@@ -16,6 +16,7 @@ flowchart LR
     FASTQ([FASTQ]) --> DEDUP[seqkit rmdup]
     DEDUP --> CHOP[chopper]
     CHOP --> NS[NanoStat]
+    NS --> K2[Kraken2 read-set QC]:::opt
     CHOP --> MM[minimap2] --> QM[qualimap]
     CHOP --> FLYE[Flye]
     FLYE --> RACON[Racon ×3]
@@ -26,7 +27,7 @@ flowchart LR
     MEDAKA --> BNT[BLAST core_nt]:::opt
     NS & QM & QUAST --> MQC[MultiQC]
     MQC & SP & BLA & BNT --> RPT[/HTML report/]
-    MEDAKA & SP & BLA & BNT --> KG[(kg/ CSVs)]
+    MEDAKA & SP & BLA & BNT & K2 --> KG[(kg/ CSVs)]
 
     classDef opt fill:#f5f5f5,stroke:#aaa,stroke-dasharray:5 5
 ```
@@ -96,6 +97,10 @@ sample_02,/path/to/sample_02.fq.gz
 | `--medaka_model` | `r1041_e82_400bps_sup_v5.2.0` | Medaka model — must match basecalling model |
 | `--blast_db` | `null` | Path to pre-built LosAlamos BLAST DB (disabled if null) |
 | `--core_nt_db` | `null` | Path to NCBI core_nt DB; requires `BLASTDB` env var pointing to taxdb |
+| `--kraken2_db` | `null` | Path to a pre-built Kraken2 DB dir for read-set QC (disabled if null) |
+| `--kraken2_confidence` | `0.0` | Kraken2 `--confidence` threshold |
+| `--kraken2_z_min` | `-1.0` | Log-abundance z-score cutoff; taxa below fold into an "Other" bucket |
+| `--kraken2_min_taxa` | `3` | Below this taxa count the adaptive z-score filter is skipped |
 | `--vl_csv` | `null` | Viral load history CSV (`sample_id`, `date`, `vl` columns) |
 | `--cd4_csv` | `null` | CD4 count history CSV (`sample_id`, `date`, `cd4_pct`, `cd4_count` columns) |
 | `--chopper_q` | `10` | Minimum read quality score |
@@ -139,6 +144,7 @@ Each sample produces `results/<sample_id>/`:
 
 ```
 nanostat/                    Read QC stats
+kraken2/                     Kraken2 read-set QC (report + output; if --kraken2_db)
 aln.bam                      Reference-mapped reads
 qualimap/                    Mapping QC
 flye/                        De novo assembly
@@ -167,6 +173,7 @@ Each sample's `kg/` directory contains flat CSVs ready for bulk import into a Ne
 | `stanford_predictions.csv` | `StanfordHIVDRPrediction`, `Drug`, `DrugClass` → linked to `Contig` via `Sample` |
 | `mutations.csv` | `Mutation` → linked to `StanfordHIVDRAlignment` |
 | `blast_hits.csv` | `ReferenceGenome`, `Organism` (from BLAST hits) |
+| `taxonomic_classification.csv` | `ProcessRun:TaxonomicClassification` (Kraken2 read-set QC; taxa in a `taxa_json` property) → linked to `Sample` and the FASTQ `BioDataFile` (if `--kraken2_db`) |
 
 Contig IDs are namespaced `{sample_id}:{flye_contig_name}` (e.g. `sample_01:contig_1`) to remain globally unique across samples, since Flye always resets its numbering from `contig_1`.
 
@@ -233,6 +240,7 @@ CRF01_AE (13.7%) is well represented, relevant for Southeast Asian surveillance.
 | Deduplication | seqkit rmdup | 2.10.0 |
 | Read filtering | chopper | 0.10.0 |
 | Read QC | NanoStat | 1.6.0 |
+| Read-set taxonomy QC | Kraken2 (optional) | 2.1.3 |
 | Reference mapping | minimap2 | latest |
 | Mapping QC | qualimap | 2.3 |
 | De novo assembly | Flye (--meta) | 2.9.5 † |

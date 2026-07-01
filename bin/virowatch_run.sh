@@ -16,6 +16,10 @@ MINQUAL=10
 BLAST_DB=""
 CORE_NT_DB=""
 REPORT_DIR=""
+KRAKEN2_DB=""
+KRAKEN2_CONFIDENCE=0.0
+KRAKEN2_Z_MIN=-1.0
+KRAKEN2_MIN_TAXA=3
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -31,6 +35,10 @@ while [[ $# -gt 0 ]]; do
         --blast_db)    BLAST_DB="$2";    shift 2 ;;
         --core_nt_db)  CORE_NT_DB="$2";  shift 2 ;;
         --report_dir)  REPORT_DIR="$2";  shift 2 ;;
+        --kraken2_db)         KRAKEN2_DB="$2";         shift 2 ;;
+        --kraken2_confidence) KRAKEN2_CONFIDENCE="$2"; shift 2 ;;
+        --kraken2_z_min)      KRAKEN2_Z_MIN="$2";      shift 2 ;;
+        --kraken2_min_taxa)   KRAKEN2_MIN_TAXA="$2";   shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -48,6 +56,28 @@ FILTERED="${OUT}/${SAMPLE}.filtered.fq"
 echo "[$(date)] ${SAMPLE}: NanoStat"
 NanoStat -n "${SAMPLE}" -t "${THREADS}" \
     --outdir "${OUT}/nanostat" --fastq "${FILTERED}"
+
+# ── 1b. Kraken2 read-set QC (optional) ────────────────────────────────────────
+# Runs before assembly so taxonomic QC is produced even if Flye later yields no
+# assembly. Skipped unless a Kraken2 DB is provided (mirrors the optional BLAST steps).
+if [[ -n "${KRAKEN2_DB}" ]]; then
+    echo "[$(date)] ${SAMPLE}: Kraken2 classification"
+    mkdir -p "${OUT}/kraken2"
+    kraken2 --db "${KRAKEN2_DB}" --threads "${THREADS}" \
+        --confidence "${KRAKEN2_CONFIDENCE}" \
+        --report "${OUT}/kraken2/${SAMPLE}.kraken2.report.txt" \
+        --output "${OUT}/kraken2/${SAMPLE}.kraken2.output.txt" \
+        "${FILTERED}"
+    if [[ -n "${REPORT_DIR}" ]]; then
+        python "${REPORT_DIR}/meta_kg_export.py" \
+            --sample         "${SAMPLE}" \
+            --kraken2-report "${OUT}/kraken2/${SAMPLE}.kraken2.report.txt" \
+            --reads          "${FASTQ}" \
+            --outdir         "${OUT}" \
+            --z-min          "${KRAKEN2_Z_MIN}" \
+            --min-taxa       "${KRAKEN2_MIN_TAXA}"
+    fi
+fi
 
 # ── 2. Map QC ─────────────────────────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: minimap2 + qualimap"
