@@ -45,7 +45,14 @@ CREATE CONSTRAINT mutation_gene_text IF NOT EXISTS
   FOR (n:Mutation) REQUIRE (n.gene, n.text) IS UNIQUE;
 
 CREATE CONSTRAINT tcr_id IF NOT EXISTS
-  FOR (n:TaxonomicClassification) REQUIRE n.process_run_id IS UNIQUE;",5,1,false
+  FOR (n:TaxonomicClassification) REQUIRE n.process_run_id IS UNIQUE;
+
+CREATE CONSTRAINT variant_identity_key IF NOT EXISTS
+  FOR (v:Variant) REQUIRE (v.REF_ACC, v.POS, v.REF, v.ALT, v.hgvs_c, v.hgvs_p) IS NODE KEY;
+
+CREATE CONSTRAINT vcr_id IF NOT EXISTS
+  FOR (n:VariantCallingRun) REQUIRE n.process_run_id IS UNIQUE;
+",5,1,false
 01 Sample,,"// Replace <sample_id> with your sample ID, e.g. sample_01
 // CSV must be in the Neo4j import directory at: <import_dir>/<sample_id>/kg/
 
@@ -212,7 +219,7 @@ CALL {
     MERGE (c)-[:HAS_BLAST_HIT]->(refg)
   )
 } IN TRANSACTIONS OF 500 ROWS;",14,2,false
-10 Taxonomic Classification,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+12 Taxonomic Classification,,"// Replace <sample_id> with your sample ID, e.g. sample_01
 // Kraken2 read-set QC. Sample -[:CLASSIFIED_IN]-> (:ProcessRun:TaxonomicClassification).
 // Per-taxon results are stored as a JSON string property (taxa_json), sorted by abundance desc.
 // CLASSIFIED_FROM reuses the input FASTQ BioDataFile loaded by '04 BioDataFile FASTQ'
@@ -326,3 +333,64 @@ Delete All Data,,"// WARNING: removes all nodes and relationships in the current
 MATCH (n)
 CALL { WITH n DETACH DELETE n }
 IN TRANSACTIONS OF 1000 ROWS;",23,4,false
+10 VariantCallingRun,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// VariantCallingRun (:ProcessRun:VariantCallingRun). CALLED_FROM reuses the input
+// FASTQ BioDataFile loaded by '04 BioDataFile FASTQ' (skipped if it was never loaded).
+// Load this BEFORE '11 Variants' (the Variant loader MATCHes this run by process_run_id).
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/variant_calling_run.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (vcr:ProcessRun:VariantCallingRun {process_run_id: rec.process_run_id})
+    ON CREATE SET vcr.process = 'variant_calling'
+  SET vcr.tool      = rec.tool,
+      vcr.reference = rec.reference,
+      vcr.run_id    = CASE WHEN rec.run_id <> '' THEN rec.run_id ELSE null END
+  WITH vcr, rec
+  WHERE rec.fastq_uri IS NOT NULL AND rec.fastq_uri <> ''
+  MATCH (f:BioDataFile {uri: rec.fastq_uri})
+  MERGE (vcr)-[:CALLED_FROM]->(f)
+} IN TRANSACTIONS OF 500 ROWS;
+",26,2,false
+11 Variants,,"// Replace <sample_id> with your sample ID, e.g. sample_01
+// Variant nodes + per-caller CALLED edge quality; the Variant is reference-anchored
+// via AGAINST. One CSV row per (VCF row x SnpEff ANN entry). Requires '10
+// VariantCallingRun' to have been loaded first (MATCH on process_run_id).
+
+:auto LOAD CSV WITH HEADERS FROM 'file:///<sample_id>/kg/variants.csv' AS rec
+CALL {
+  WITH rec
+  MERGE (var:Variant {REF_ACC: rec.REF_ACC, POS: toInteger(rec.POS),
+                      REF: rec.REF, ALT: rec.ALT,
+                      hgvs_c: rec.hgvs_c, hgvs_p: rec.hgvs_p})
+    ON CREATE SET var.CHROM     = rec.CHROM,
+                  var.TYPE      = CASE WHEN rec.TYPE      <> '' THEN rec.TYPE      ELSE null END,
+                  var.EFFECT    = CASE WHEN rec.EFFECT    <> '' THEN rec.EFFECT    ELSE null END,
+                  var.IMPACT    = CASE WHEN rec.IMPACT    <> '' THEN rec.IMPACT    ELSE null END,
+                  var.gene_name = CASE WHEN rec.gene_name <> '' THEN rec.gene_name ELSE null END
+  WITH var, rec
+  MATCH (vcr:VariantCallingRun {process_run_id: rec.process_run_id})
+  MERGE (vcr)-[c:CALLED]->(var)
+    SET c.DP     = CASE WHEN rec.DP   <> '' THEN toInteger(rec.DP) ELSE null END,
+        c.GT     = CASE WHEN rec.GT   <> '' THEN rec.GT            ELSE null END,
+        c.QUAL   = CASE WHEN rec.QUAL <> '' THEN toFloat(rec.QUAL) ELSE null END,
+        c.GQ     = CASE WHEN rec.GQ   <> '' THEN toInteger(rec.GQ) ELSE null END,
+        c.AO     = CASE WHEN rec.AO   <> '' THEN toInteger(rec.AO) ELSE null END,
+        c.RO     = CASE WHEN rec.RO   <> '' THEN toInteger(rec.RO) ELSE null END,
+        c.FILTER = CASE WHEN rec.FILTER <> '' THEN rec.FILTER      ELSE null END
+  WITH var, rec
+  MERGE (rg:ReferenceGenome {accession_no: rec.REF_ACC})
+  MERGE (var)-[:AGAINST]->(rg)
+} IN TRANSACTIONS OF 500 ROWS;
+",27,2,false
+Variants per Sample,,"// Replace sample_01 with your sample ID
+// A sample's variants, reached via the FASTQ BioDataFile the caller consumed.
+
+MATCH (s:Sample {sample_id: 'sample_01'})-[:HAS_ASSEMBLY]->(:Assembly)
+      -[:ASSEMBLED_FROM]->(:BioDataFile)<-[:CALLED_FROM]-(vcr:VariantCallingRun)
+      -[c:CALLED]->(v:Variant)-[:AGAINST]->(rg:ReferenceGenome)
+RETURN rg.accession_no AS reference, v.gene_name AS gene, v.POS AS pos,
+       v.REF AS ref, v.ALT AS alt, v.EFFECT AS effect, v.IMPACT AS impact,
+       v.hgvs_p AS hgvs_p, c.QUAL AS qual, c.DP AS depth, c.GT AS gt, c.FILTER AS filter
+ORDER BY pos;
+",28,3,false

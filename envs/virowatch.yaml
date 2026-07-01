@@ -35,6 +35,10 @@ dependencies:
   - blast=2.16.0
   - sierrapy=0.4.3
   - gql=3.5.3
+  # Variant annotation — bcftools/htslib (variant prep + gene injection) live in
+  # the medaka env; only snpEff is needed here. Pin matches the reference
+  # snpeff:5.2 container.
+  - snpeff=5.2
   # Report generation
   - biopython=1.84
   - pandas=2.2.3

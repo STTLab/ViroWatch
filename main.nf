@@ -15,11 +15,13 @@ process VIROWATCH_SAMPLE {
     path "${meta.id}/", emit: results
 
     script:
-    def blast_flag    = params.blast_db   ? "--blast_db ${params.blast_db}"      : ""
-    def core_nt_flag  = params.core_nt_db ? "--core_nt_db ${params.core_nt_db}"  : ""
-    def kraken2_flag  = params.kraken2_db ? "--kraken2_db ${params.kraken2_db}"  : ""
-    def vl_flag       = params.vl_csv     ? "VL_CSV=${params.vl_csv}"            : ""
-    def cd4_flag      = params.cd4_csv    ? "CD4_CSV=${params.cd4_csv}"          : ""
+    def blast_flag    = params.blast_db      ? "--blast_db ${params.blast_db}"          : ""
+    def core_nt_flag  = params.core_nt_db    ? "--core_nt_db ${params.core_nt_db}"      : ""
+    def kraken2_flag  = params.kraken2_db    ? "--kraken2_db ${params.kraken2_db}"      : ""
+    def snpeff_flag   = params.snpeff_db     ? "--snpeff_db ${params.snpeff_db}"        : ""
+    def snpeff_cfg    = params.snpeff_config ? "--snpeff_config ${params.snpeff_config}" : ""
+    def vl_flag       = params.vl_csv        ? "VL_CSV=${params.vl_csv}"                : ""
+    def cd4_flag      = params.cd4_csv       ? "CD4_CSV=${params.cd4_csv}"              : ""
     """
     ${vl_flag} ${cd4_flag} virowatch_run.sh \\
         --sample     ${meta.id} \\
@@ -37,7 +39,9 @@ process VIROWATCH_SAMPLE {
         --kraken2_min_taxa   ${params.kraken2_min_taxa} \\
         ${blast_flag} \\
         ${core_nt_flag} \\
-        ${kraken2_flag}
+        ${kraken2_flag} \\
+        ${snpeff_flag} \\
+        ${snpeff_cfg}
     """
 }
 

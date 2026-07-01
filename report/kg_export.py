@@ -13,12 +13,16 @@ into a Neo4j knowledge graph via BULK_MERGE_* Cypher templates:
   kg/stanford_predictions.csv    — StanfordHIVDRPrediction + Drug + DrugClass rows
   kg/mutations.csv               — Mutation nodes (full flag set)
   kg/blast_hits.csv              — ReferenceGenome + Organism rows from BLAST hits
+  kg/variant_calling_run.csv     — VariantCallingRun node (+ CALLED_FROM the FASTQ)
+  kg/variants.csv                — Variant nodes + CALLED edge quality (one row per
+                                   VCF row × SnpEff ANN entry; AGAINST the reference)
 
 Contig IDs are namespaced as  {sample_id}:{flye_contig_name}  so they are
 globally unique across samples (Flye always starts from contig_1).
 """
 import argparse
 import csv
+import gzip
 import hashlib
 import os
 import sys
@@ -290,6 +294,177 @@ def export_blast_hits(kg_dir, sample_id, sample_dir, report_dir, contig_id_map):
         )
 
 
+# ── variants (medaka + SnpEff) ─────────────────────────────────────────────────
+# VCF parsing mirrors nosograph-py's nosograph/utils/vcf.py::parse_medaka_vcf so
+# the emitted CSVs match the lib's Variant / VariantCallingRun schema and the
+# BULK_MERGE_Variants Cypher contract — WITHOUT importing the private lib.
+
+def _open_vcf(vcf_path):
+    """Open a VCF for text reading, transparently handling gzip (.gz)."""
+    if str(vcf_path).endswith(".gz"):
+        return gzip.open(vcf_path, "rt", encoding="utf-8")
+    return open(vcf_path, encoding="utf-8")
+
+
+def _vcf_int(val):
+    if val is None or val in (".", ""):
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        return None
+
+
+def _parse_info(info_str):
+    result = {}
+    for token in info_str.split(";"):
+        if "=" in token:
+            k, v = token.split("=", 1)
+            result[k] = v
+        else:
+            result[token] = "true"
+    return result
+
+
+def _parse_format(format_str, sample_str):
+    keys = format_str.split(":")
+    values = sample_str.split(":")
+    return dict(zip(keys, values))
+
+
+def _parse_ann(ann_str):
+    """SnpEff ANN INFO field → one dict per annotation entry.
+
+    ANN pipe fields: ALLELE|EFFECT|IMPACT|GENE_NAME|GENE_ID|FEATURE_TYPE|
+    TRANSCRIPT_ID|BIOTYPE|RANK|HGVS.c|HGVS.p|...
+    """
+    results = []
+    for entry in ann_str.split(","):
+        fields = entry.split("|")
+        if len(fields) < 11:
+            continue
+        results.append({
+            "effect":    fields[1],
+            "impact":    fields[2],
+            "gene_name": fields[3] or None,
+            "hgvs_c":    fields[9],
+            "hgvs_p":    fields[10],
+        })
+    return results
+
+
+def _ref_accession(ref_fa_path):
+    """First FASTA header token (the accession, e.g. 'AF164485.1'), or None."""
+    if not ref_fa_path:
+        return None
+    try:
+        with open(ref_fa_path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith(">"):
+                    return line[1:].split()[0]
+    except OSError:
+        return None
+    return None
+
+
+def _nn(val):
+    """None → empty string (CSV null convention); everything else str()."""
+    return "" if val is None else str(val)
+
+
+def export_variants(kg_dir, sample_id, sample_dir, fastq_path, ref_fa_path):
+    """Export medaka+SnpEff variants to variant_calling_run.csv + variants.csv.
+
+    Runs independently of the assembly branch — variants are called against the
+    reference from the filtered reads, so they exist even without a Flye assembly.
+    Prefers the SnpEff-annotated bgzip VCF; falls back to the un-annotated tagged
+    VCF (EFFECT/IMPACT/gene_name then empty).
+    """
+    variants_dir = sample_dir / "variants"
+    vcf_path = None
+    for cand in ("medaka.annotated.vcf.gz", "tagged.vcf"):
+        p = variants_dir / cand
+        if p.exists():
+            vcf_path = p
+            break
+    if vcf_path is None:
+        return
+
+    ref_acc = _ref_accession(ref_fa_path) or ""
+    process_run_id = f"{sample_id}:variant_calling:medaka:{ref_acc}"
+    fastq_uri = str(Path(fastq_path).resolve())
+
+    _write_csv(
+        kg_dir / "variant_calling_run.csv",
+        ["process_run_id", "process", "tool", "reference", "run_id",
+         "fastq_uri", "sample_id"],
+        [{
+            "process_run_id": process_run_id,
+            "process":        "variant_calling",
+            "tool":           "medaka",
+            "reference":      ref_acc,
+            "run_id":         "",
+            "fastq_uri":      fastq_uri,
+            "sample_id":      sample_id,
+        }],
+    )
+
+    rows = []
+    with _open_vcf(vcf_path) as fh:
+        for line in fh:
+            if line.startswith("#"):
+                continue
+            cols = line.rstrip("\n").split("\t")
+            if len(cols) < 8:
+                continue
+            chrom, pos_str, _id, ref, alt, qual_str, flt, info_str = cols[:8]
+            format_str = cols[8] if len(cols) > 8 else ""
+            sample_str = cols[9] if len(cols) > 9 else ""
+
+            info = _parse_info(info_str)
+            fmt = _parse_format(format_str, sample_str) if format_str else {}
+            annotations = _parse_ann(info.get("ANN", ""))
+
+            base = {
+                "process_run_id": process_run_id,
+                "REF_ACC": ref_acc or chrom,
+                "POS":     pos_str,
+                "REF":     ref,
+                "ALT":     alt,
+                "CHROM":   chrom,
+                "TYPE":    _nn(info.get("TYPE")),
+                "DP":      _nn(_vcf_int(info.get("DP"))),
+                "GT":      _nn(fmt.get("GT")),
+                "QUAL":    "" if qual_str in (".", "") else qual_str,
+                "GQ":      _nn(_vcf_int(fmt.get("GQ"))),
+                "AO":      "",   # medaka does not emit AO/RO
+                "RO":      "",
+                "FILTER":  "" if flt == "." else flt,
+            }
+
+            if not annotations:
+                rows.append({**base, "hgvs_c": "", "hgvs_p": "",
+                             "EFFECT": "", "IMPACT": "", "gene_name": ""})
+                continue
+            for ann in annotations:
+                rows.append({
+                    **base,
+                    "hgvs_c":    ann["hgvs_c"],
+                    "hgvs_p":    ann["hgvs_p"],
+                    "EFFECT":    _nn(ann["effect"]),
+                    "IMPACT":    _nn(ann["impact"]),
+                    "gene_name": _nn(ann["gene_name"]),
+                })
+
+    _write_csv(
+        kg_dir / "variants.csv",
+        ["process_run_id", "REF_ACC", "POS", "REF", "ALT", "hgvs_c", "hgvs_p",
+         "CHROM", "TYPE", "EFFECT", "IMPACT", "gene_name",
+         "DP", "GT", "QUAL", "GQ", "AO", "RO", "FILTER"],
+        rows,
+    )
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -300,6 +475,7 @@ def main():
     parser.add_argument("--sample_dir", required=True, help="Path to sample output directory")
     parser.add_argument("--report_dir", required=True, help="Path to the report/ directory")
     parser.add_argument("--fastq",      required=True, help="Path to the input FASTQ file")
+    parser.add_argument("--ref_fa",     default="",    help="Reference FASTA (for the variant REF_ACC/accession)")
     args = parser.parse_args()
 
     sample_id  = args.sample
@@ -322,6 +498,10 @@ def main():
         contig_id_map = {}
         export_sierrapy(kg_dir, sample_id, sample_dir, report_dir, contig_id_map)
         export_blast_hits(kg_dir, sample_id, sample_dir, report_dir, contig_id_map)
+
+    # Variants are independent of the assembly branch (called against the
+    # reference from the filtered reads), so export them unconditionally.
+    export_variants(kg_dir, sample_id, sample_dir, args.fastq, args.ref_fa)
 
     written = sorted(p.name for p in kg_dir.glob("*.csv"))
     print(f"[kg_export] {sample_id}: {len(written)} CSV(s) → {kg_dir}")

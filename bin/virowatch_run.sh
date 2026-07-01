@@ -20,6 +20,8 @@ KRAKEN2_DB=""
 KRAKEN2_CONFIDENCE=0.0
 KRAKEN2_Z_MIN=-1.0
 KRAKEN2_MIN_TAXA=3
+SNPEFF_DB=""
+SNPEFF_CONFIG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -39,6 +41,8 @@ while [[ $# -gt 0 ]]; do
         --kraken2_confidence) KRAKEN2_CONFIDENCE="$2"; shift 2 ;;
         --kraken2_z_min)      KRAKEN2_Z_MIN="$2";      shift 2 ;;
         --kraken2_min_taxa)   KRAKEN2_MIN_TAXA="$2";   shift 2 ;;
+        --snpeff_db)          SNPEFF_DB="$2";          shift 2 ;;
+        --snpeff_config)      SNPEFF_CONFIG="$2";      shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -112,16 +116,78 @@ micromamba run -n medaka medaka_consensus -i "${FILTERED}" -d "${CONTIGS}" \
     -o "${OUT}/medaka_consensus" -t "${THREADS}" -m "${MODEL}"
 CONSENSUS="${OUT}/medaka_consensus/consensus.fasta"
 
-# ── 6. QUAST assembly QC ──────────────────────────────────────────────────────
+# ── 6. Variant calling & annotation ───────────────────────────────────────────
+# Calls variants from the filtered reads against the reference (medaka_variant),
+# reheaders + fills tags, then — only when a --snpeff_db is supplied — annotates
+# with SnpEff and injects INFO/GENE (mirrors the reference VARIANT subworkflow:
+# MEDAKA_VARIANT → BCFTOOLS_PREP → SNPEFF → ANNOTATE_GENES). medaka/bcftools/htslib
+# all live in the medaka env; snpEff runs from the virowatch env.
+echo "[$(date)] ${SAMPLE}: Medaka variant calling"
+mkdir -p "${OUT}/variants"
+micromamba run -n medaka medaka_variant \
+    -i "${FILTERED}" -r "${REF_FA}" \
+    -o "${OUT}/variants/medaka_var_out" -t "${THREADS}"
+cp "${OUT}/variants/medaka_var_out/medaka.annotated.vcf" "${OUT}/variants/medaka.raw.vcf"
+cp "${OUT}/variants/medaka_var_out/calls_to_ref.bam"     "${OUT}/variants/calls_to_ref.bam"
+cp "${OUT}/variants/medaka_var_out/calls_to_ref.bam.bai" "${OUT}/variants/calls_to_ref.bam.bai"
+
+# Reheader sample column to the sample ID and fill INFO/END + INFO/TYPE tags
+printf '%s\n' "${SAMPLE}" > "${OUT}/variants/sample_names.txt"
+micromamba run -n medaka bcftools reheader \
+    -s "${OUT}/variants/sample_names.txt" \
+    -o "${OUT}/variants/reheadered.vcf" "${OUT}/variants/medaka.raw.vcf"
+micromamba run -n medaka bcftools +fill-tags \
+    -Ov -o "${OUT}/variants/tagged.vcf" "${OUT}/variants/reheadered.vcf" \
+    -- -t INFO/END,INFO/TYPE
+
+if [[ -n "${SNPEFF_DB}" ]]; then
+    echo "[$(date)] ${SAMPLE}: SnpEff annotation (${SNPEFF_DB})"
+    SNPEFF_CFG_FLAG=""
+    [[ -n "${SNPEFF_CONFIG}" ]] && SNPEFF_CFG_FLAG="-c ${SNPEFF_CONFIG}"
+    snpEff ann ${SNPEFF_CFG_FLAG} "${SNPEFF_DB}" \
+        -csvStats  "${OUT}/variants/snpeff.stats.csv" \
+        -htmlStats "${OUT}/variants/snpEff_summary.html" \
+        "${OUT}/variants/tagged.vcf" > "${OUT}/variants/snpeff.annotated.vcf"
+
+    # Inject INFO/GENE extracted from the SnpEff ANN field (field 4 = gene name)
+    micromamba run -n medaka bcftools query \
+        -f '%CHROM\t%POS\t%REF\t%ALT\t%INFO/ANN\n' "${OUT}/variants/snpeff.annotated.vcf" \
+    | awk -F'\t' '{
+        split($5, ann, ",");
+        genes = "";
+        for (i in ann) {
+            split(ann[i], f, "|");
+            if (f[4] != "") { genes = (genes == "") ? f[4] : genes "," f[4]; }
+        }
+        print $1 "\t" $2 "\t" $3 "\t" $4 "\t" genes;
+      }' > "${OUT}/variants/genes.tsv"
+    micromamba run -n medaka bgzip -f "${OUT}/variants/genes.tsv"
+    micromamba run -n medaka tabix -s1 -b2 -e2 "${OUT}/variants/genes.tsv.gz"
+
+    printf '##INFO=<ID=GENE,Number=.,Type=String,Description="Gene names extracted from SnpEff ANN">\n' \
+        > "${OUT}/variants/gene_header.txt"
+    micromamba run -n medaka bcftools annotate \
+        -a "${OUT}/variants/genes.tsv.gz" \
+        -c CHROM,POS,REF,ALT,INFO/GENE \
+        -h "${OUT}/variants/gene_header.txt" \
+        "${OUT}/variants/snpeff.annotated.vcf" \
+        -Oz -o "${OUT}/variants/medaka.annotated.vcf.gz"
+    # Random-access index (.gzi) for the already-bgzipped output
+    micromamba run -n medaka bgzip -r "${OUT}/variants/medaka.annotated.vcf.gz"
+else
+    echo "[$(date)] ${SAMPLE}: no --snpeff_db, skipping SnpEff annotation"
+fi
+
+# ── 7. QUAST assembly QC ──────────────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: QUAST"
 quast -o "${OUT}/quast" -t "${THREADS}" --nanopore "${FILTERED}" \
     -g "${REF_GFF}" -r "${REF_FA}" "${CONSENSUS}"
 
-# ── 7. SierraPy drug resistance ───────────────────────────────────────────────
+# ── 8. SierraPy drug resistance ───────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: SierraPy"
 sierrapy fasta "${CONSENSUS}" --no-sharding -o "${OUT}/sierrapy.json"
 
-# ── 8. BLAST (optional) ───────────────────────────────────────────────────────
+# ── 9. BLAST (optional) ───────────────────────────────────────────────────────
 if [[ -n "${BLAST_DB}" || -n "${CORE_NT_DB}" ]]; then
     mkdir -p "${OUT}/blast"
 fi
@@ -148,11 +214,11 @@ if [[ -n "${BLAST_DB}" ]]; then
         -max_target_seqs 25 -evalue 1e-20 -perc_identity 85
 fi
 
-# ── 9. MultiQC ────────────────────────────────────────────────────────────────
+# ── 10. MultiQC ───────────────────────────────────────────────────────────────
 echo "[$(date)] ${SAMPLE}: MultiQC"
 multiqc --force --outdir "${OUT}/multiqc" "${OUT}"
 
-# ── 10. HTML report ───────────────────────────────────────────────────────────
+# ── 11. HTML report ───────────────────────────────────────────────────────────
 if [[ -n "${REPORT_DIR}" ]]; then
     echo "[$(date)] ${SAMPLE}: generating report"
     VL_FLAG=""
@@ -167,14 +233,15 @@ if [[ -n "${REPORT_DIR}" ]]; then
         ${VL_FLAG} ${CD4_FLAG}
 fi
 
-# ── 11. KG CSV export ─────────────────────────────────────────────────────────
+# ── 12. KG CSV export ─────────────────────────────────────────────────────────
 if [[ -n "${REPORT_DIR}" ]]; then
     echo "[$(date)] ${SAMPLE}: KG CSV export"
     python "${REPORT_DIR}/kg_export.py" \
         --sample     "${SAMPLE}" \
         --sample_dir "${OUT}" \
         --report_dir "${REPORT_DIR}" \
-        --fastq      "${FASTQ}"
+        --fastq      "${FASTQ}" \
+        --ref_fa     "${REF_FA}"
 fi
 
 echo "[$(date)] ${SAMPLE}: done"
