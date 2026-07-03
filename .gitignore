@@ -161,6 +161,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Nextflow cache, logs, and site-specific config
+# Nextflow cache, logs, work dir, run outputs, and site-specific config
 .nextflow*
+work/
+results/
+results_test/
 conf/site.config

@@ -39,6 +39,8 @@ flowchart LR
 
 Most tools are installed automatically into `envs/virowatch.yaml` on first run. Medaka runs in a separate isolated environment (`envs/medaka.yaml`) because its PyTorch/CUDA dependencies conflict with the main environment.
 
+Both `envs/virowatch.yaml` and `envs/medaka.yaml` are **fully pinned lockfiles** (`name=version=build`), so they resolve deterministically regardless of upstream conda repodata drift. To change a tool, update the env and re-export with `micromamba env export -n <env> > envs/<env>.yaml`.
+
 ### Hardware note — AVX2
 
 Newer builds of Flye (≥ 2.9.6) and Racon (1.5.0) are compiled with AVX2 instructions and will crash with `Illegal instruction (SIGILL)` on CPUs that pre-date Haswell (Intel Xeon E5 v1/v2, some Broadwell Xeons). The environment file already pins `flye=2.9.5` to avoid this. Racon 1.5.0 has no non-AVX2 conda build; a workaround is to manually replace the binary after environment creation:
