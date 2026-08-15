@@ -285,3 +285,10 @@ For installation, database setup, data loading, and surveillance query templates
 ## Citation
 
 Wattanasombat S, Tongjai S. ViroWatch: HIV-1 Oxford Nanopore Technologies genome surveillance pipeline [computer software]. GitHub; 2026. Available from: https://github.com/STTLab/ViroWatch
+
+## STTLab Members
+
+- Sara Wattanasobat
+- Siripong Tongjai (PI)
+
+Department of Microbiology, Faculty of Medicine, Chiang Mai University, Chiang Mai, 50200 Thailand
