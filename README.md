@@ -279,3 +279,9 @@ The Knowledge Graph spans three interconnected domains:
 For installation, database setup, data loading, and surveillance query templates see the **[Knowledge graph Tutorial](https://github.com/STTLab/ViroWatch/wiki/Knowledge-graph-Tutorial)**.
 
 > **Disclaimer:** This project is not affiliated with, endorsed by, or sponsored by Neo4j, Inc. "Neo4j" and related trademarks are the property of Neo4j, Inc.
+
+---
+
+## Citation
+
+Wattanasombat S, Tongjai S. ViroWatch: HIV-1 Oxford Nanopore Technologies genome surveillance pipeline [computer software]. GitHub; 2026. Available from: https://github.com/STTLab/ViroWatch
